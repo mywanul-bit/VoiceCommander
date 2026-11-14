@@ -89,6 +89,43 @@
             android:textColor="@color/grey_text"
             android:textSize="14sp" />
 
+        <!-- Gemini AI: free API key from aistudio.google.com -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/ai_key_label"
+            android:textColor="@color/grey_text"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etApiKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:hint="@string/ai_key_hint"
+            android:inputType="textNoSuggestions"
+            android:textColor="@color/dark_text"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/btnSaveApiKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/ai_key_save" />
+
+        <TextView
+            android:id="@+id/txtApiKeyStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="@string/ai_key_missing_status"
+            android:textColor="@color/grey_text"
+            android:textSize="14sp" />
+
         <TextView
             android:id="@+id/txtA11yStatus"
             android:layout_width="match_parent"
