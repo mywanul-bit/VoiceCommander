@@ -49,6 +49,17 @@ sealed class VoiceCommand {
     object Explain : VoiceCommand()
     object DraftComment : VoiceCommand()
 
+    // ---- continuous tasks: "করতে থাকো" / "X পৃষ্ঠা পর্যন্ত অনুবাদ করো" ----
+    data class RepeatLast(val durationMs: Long? = null) : VoiceCommand()
+    data class RepeatCommand(
+        val inner: VoiceCommand,
+        val durationMs: Long? = null
+    ) : VoiceCommand()
+    data class TranslatePages(val maxPages: Int?) : VoiceCommand()
+    object TranslatePageOnce : VoiceCommand()
+    object TaskStatus : VoiceCommand()
+    object StopTask : VoiceCommand()
+
     data class Unknown(val raw: String) : VoiceCommand()
 }
 
@@ -64,6 +75,8 @@ sealed class VoiceCommand {
  *  - "সার্চ করো হাদিসের বই", "লিংক খোলো আরও দেখুন", "কপি করো", "পেস্ট করো"
  *  - "কমেন্ট লিখো খুব সুন্দর", "কমেন্ট পোস্ট করো", "ড্রাইভ খোলো",
  *    "ড্রাইভে খুঁজো আল মুহান্নাদ", "এই পাতাটা পড়ে শোনাও", "এটা বুঝিয়ে দাও"
+ *  - "নিচে যেতে থাকো", "১০ মিনিট ধরে করতে থাকো", "কী করছো",
+ *    "১০ পৃষ্ঠা পর্যন্ত অনুবাদ করো", "এই পাতাটা অনুবাদ করো", "টাস্ক বন্ধ করো"
  */
 object CommandParser {
 
@@ -77,6 +90,11 @@ object CommandParser {
         ) {
             return VoiceCommand.StopListening
         }
+
+        // Continuous tasks: checked before the interaction and generic
+        // rules — "নিচে যেতে থাকো" would otherwise be swallowed by the
+        // scroll rule, and "টাস্ক বন্ধ করো" by CloseApp.
+        parseContinuous(input)?.let { return it }
 
         // Interaction commands (browsing, copy/paste, comments, Drive,
         // read-aloud, AI) are checked BEFORE the device and generic
@@ -289,6 +307,153 @@ object CommandParser {
             return VoiceCommand.StopSpeech
         }
         return null
+    }
+
+    // ---------- continuous tasks: "করতে থাকো" / "X পৃষ্ঠা পর্যন্ত অনুবাদ করো" ----------
+
+    private fun parseContinuous(input: String): VoiceCommand? {
+        // Stop a running task: "টাস্ক বন্ধ করো" / "কাজ বন্ধ করো" /
+        // "কাজ থামাও".
+        if (input.contains("টাস্ক বন্ধ") || input.contains("কাজ বন্ধ") ||
+            input.contains("টাস্ক থামাও") || input.contains("কাজ থামাও") ||
+            input.contains("কাজটি বন্ধ") || input == "stop task" ||
+            input.contains("stop the task")
+        ) {
+            return VoiceCommand.StopTask
+        }
+
+        // Status: "কী করছো" / "কাজের অবস্থা".
+        if (input.contains("কাজের অবস্থা") || input.contains("কী করছো") ||
+            input.contains("কী করছ") || input.contains("কি করছ") ||
+            input == "what are you doing" ||
+            input.contains("what are you doing")
+        ) {
+            return VoiceCommand.TaskStatus
+        }
+
+        // Translation — checked before the generic repeat below, because
+        // "অনুবাদ করতে থাকো" also contains "করতে থাকো".
+        parseTranslate(input)?.let { return it }
+
+        // Repeat: "... করতে থাকো" / "... যেতে থাকো" / "করতে থাকো".
+        if (input.contains("করতে থাকো") || input.contains("করতে থাক") ||
+            input.contains("যেতে থাকো") || input == "keep doing it" ||
+            input.contains("keep doing it") || input.contains("keep doing this") ||
+            input.contains("keep scrolling")
+        ) {
+            val durationMs = extractDurationMs(input)
+            var base = removeDuration(input)
+            base = base
+                .removeSuffix("করতে থাকো").removeSuffix("করতে থাক")
+                .removeSuffix("যেতে থাকো")
+                .removeSuffix("keep doing it").removeSuffix("keep doing this")
+                .trim()
+            if (base.isEmpty() || base == "এটা" || base == "এই কাজটা" ||
+                base == "এই কাজ" || base == "এইটা" || base == "সেটা"
+            ) {
+                return VoiceCommand.RepeatLast(durationMs)
+            }
+            val inner = parseInnerForRepeat(base) ?: return null
+            return VoiceCommand.RepeatCommand(inner, durationMs)
+        }
+        return null
+    }
+
+    // Translation: a loop of pages, or one page now. The loop patterns
+    // are checked first — "এই পাতাটা অনুবাদ করতে থাকো" must not fall
+    // into the one-shot branch.
+    private fun parseTranslate(input: String): VoiceCommand? {
+        // Pages: "X পৃষ্ঠা পর্যন্ত অনুবাদ করো" /
+        // "এই লেখাটা ১০ পৃষ্ঠা পর্যন্ত অনুবাদ করো" /
+        // "translate this text up to 10 pages".
+        val pageMatch = Regex("(\\d+)\\s*(পৃষ্ঠা|পাতা|পেজ|page|pages)")
+            .find(input)
+        if (pageMatch != null && (input.contains("পর্যন্ত") ||
+                input.contains("up to") || input.contains("অনুবাদ করো") ||
+                input.contains("অনুবাদ করতে"))
+        ) {
+            val n = pageMatch.groupValues[1].toIntOrNull()
+            if (n != null && n > 0) {
+                return VoiceCommand.TranslatePages(minOf(n, 50))
+            }
+        }
+        // Loop without a page count: "অনুবাদ করতে থাকো" /
+        // "এই লেখাটা অনুবাদ করতে থাকো" / "keep translating".
+        if (input.contains("অনুবাদ করতে থাকো") ||
+            input.contains("অনুবাদ করতে থাক") ||
+            input.contains("অনুবাদ করতেই থাকো") ||
+            input.contains("keep translating")
+        ) {
+            return VoiceCommand.TranslatePages(null)
+        }
+        // One page: "এই পাতাটা অনুবাদ করো" / "এই লেখাটা অনুবাদ করো" /
+        // "translate this page".
+        if (input.contains("এই পাতাটা অনুবাদ") ||
+            input.contains("এই পেজটা অনুবাদ") ||
+            input.contains("এই পৃষ্ঠাটা অনুবাদ") ||
+            input.contains("এই লেখাটা অনুবাদ") ||
+            input == "translate this page" ||
+            input.contains("translate this page")
+        ) {
+            return VoiceCommand.TranslatePageOnce
+        }
+        return null
+    }
+
+    /**
+     * Maps the inner phrase of "<কাজ> করতে থাকো" to a command, using
+     * the normal parser (so "নিচে যেতে থাকো" becomes a scroll). The
+     * continuous types themselves are not repeatable.
+     */
+    private fun parseInnerForRepeat(base: String): VoiceCommand? {
+        if (base == "স্ক্রল" || base == "scroll" ||
+            base == "নিচে স্ক্রল" || base == "scroll down"
+        ) {
+            return VoiceCommand.Scroll(down = true)
+        }
+        if (base == "উপরে স্ক্রল" || base == "scroll up") {
+            return VoiceCommand.Scroll(down = false)
+        }
+        return when (val parsed = parse(base)) {
+            is VoiceCommand.Unknown -> null
+            is VoiceCommand.RepeatLast,
+            is VoiceCommand.RepeatCommand,
+            is VoiceCommand.TranslatePages,
+            VoiceCommand.TranslatePageOnce,
+            VoiceCommand.TaskStatus,
+            VoiceCommand.StopTask,
+            VoiceCommand.StopListening,
+            VoiceCommand.StopSpeech -> null
+            else -> parsed
+        }
+    }
+
+    /**
+     * "১০ মিনিট ধরে" / "২ ঘণ্টা ধরে" / "for 30 minutes" -> milliseconds.
+     * Capped at 120 minutes per run.
+     */
+    private fun extractDurationMs(input: String): Long? {
+        Regex("(\\d+)\\s*(মিনিট|minute|minutes|min)").find(input)?.let {
+            val mins = it.groupValues[1].toLongOrNull() ?: return@let
+            return minOf(mins, 120L) * 60_000L
+        }
+        Regex("(\\d+)\\s*(ঘণ্টা|ঘন্টা|hour|hours|hr)").find(input)?.let {
+            val hours = it.groupValues[1].toLongOrNull() ?: return@let
+            return minOf(hours * 60L, 120L) * 60_000L
+        }
+        return null
+    }
+
+    /** Removes the duration segment ("১০ মিনিট ধরে" / "for 10 minutes"). */
+    private fun removeDuration(input: String): String {
+        var s = input
+        s = Regex("for\\s+\\d+\\s*(minute|minutes|hour|hours|hr)")
+            .replace(s, " ")
+        s = Regex("\\d+\\s*(মিনিট|minute|minutes|min)\\s*(ধরে|for)?")
+            .replace(s, " ")
+        s = Regex("\\d+\\s*(ঘণ্টা|ঘন্টা|hour|hours|hr)\\s*(ধরে|for)?")
+            .replace(s, " ")
+        return s.replace("\\s+".toRegex(), " ").trim()
     }
 
     // ---------- device control ----------
