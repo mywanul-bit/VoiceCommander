@@ -26,6 +26,9 @@ class CommandExecutor(context: Context) {
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /** Last command that may be repeated with "করতে থাকো". */
+    private var lastRepeatable: VoiceCommand? = null
+
     companion object {
         const val A11Y_OFF =
             "Accessibility সেবা চালু নেই — অ্যাপ থেকে সেটিংসে গিয়ে ভয়েস কমান্ডার চালু করুন"
@@ -33,8 +36,11 @@ class CommandExecutor(context: Context) {
 
     fun execute(command: VoiceCommand, onResult: (String) -> Unit) {
         worker.execute {
+            // Continuous tasks report progress through this same
+            // callback, so every progress line lands in the app log.
+            val log: (String) -> Unit = { msg -> mainHandler.post { onResult(msg) } }
             val result = try {
-                run(command)
+                run(command, log)
             } catch (e: Exception) {
                 "ভুল হয়েছে: ${e.message ?: e.toString()}"
             }
@@ -45,9 +51,27 @@ class CommandExecutor(context: Context) {
     private fun a11y(): CommanderAccessibilityService? =
         CommanderAccessibilityService.instance
 
-    private fun run(command: VoiceCommand): String = when (command) {
+    private fun run(command: VoiceCommand, onLog: (String) -> Unit): String {
+        // Remember the last command "করতে থাকো" may repeat. The
+        // continuous commands themselves are not repeatable.
+        val repeatable = command !is VoiceCommand.RepeatLast &&
+            command !is VoiceCommand.RepeatCommand &&
+            command !is VoiceCommand.TranslatePages &&
+            command != VoiceCommand.TranslatePageOnce &&
+            command != VoiceCommand.TaskStatus &&
+            command != VoiceCommand.StopTask &&
+            command != VoiceCommand.StopListening &&
+            command != VoiceCommand.StopSpeech &&
+            command !is VoiceCommand.Unknown
+        if (repeatable) lastRepeatable = command
+        return when (command) {
         is VoiceCommand.OpenApp -> openApp(command.appName)
-        VoiceCommand.CloseApp -> closeApp()
+        VoiceCommand.CloseApp -> {
+            // While a task is running, "বন্ধ করো" stops the task
+            // instead of closing the app.
+            val stopped = ContinuousTaskManager.stop()
+            if (stopped != null) stopped else closeApp()
+        }
         VoiceCommand.GoHome -> {
             a11y()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
             "হোমে গেলাম"
@@ -62,9 +86,22 @@ class CommandExecutor(context: Context) {
         is VoiceCommand.Message -> sendMessage(command.name, command.body)
         is VoiceCommand.Call -> call(command.name)
         VoiceCommand.StopListening -> {
+            val stopped = ContinuousTaskManager.stop()
             TtsHelper.stop(appContext)
-            "শোনা বন্ধ করছি"
+            if (stopped != null) "শোনা বন্ধ করছি — $stopped" else "শোনা বন্ধ করছি"
         }
+
+        // ---- continuous tasks: "করতে থাকো" / "X পৃষ্ঠা পর্যন্ত অনুবাদ করো" ----
+        is VoiceCommand.RepeatLast ->
+            startRepeat(lastRepeatable, command.durationMs, onLog)
+        is VoiceCommand.RepeatCommand ->
+            startRepeat(command.inner, command.durationMs, onLog)
+        is VoiceCommand.TranslatePages ->
+            startTranslation(command.maxPages, onLog)
+        VoiceCommand.TranslatePageOnce -> translateOnePage()
+        VoiceCommand.TaskStatus -> taskStatus()
+        VoiceCommand.StopTask ->
+            ContinuousTaskManager.stop() ?: "চলমান কোনো কাজ নেই"
 
         // ---- browsing / copy-paste / comments / Drive / read-aloud / AI ----
         is VoiceCommand.Search -> search(command.query)
@@ -80,8 +117,11 @@ class CommandExecutor(context: Context) {
         is VoiceCommand.DriveSearch -> driveSearch(command.name)
         VoiceCommand.ReadPage -> readPage()
         VoiceCommand.StopSpeech -> {
+            // The translation loop is the thing speaking, so "চুপ করো"
+            // stops it too (a repeat task is stopped by "থামো").
+            val stopped = ContinuousTaskManager.stopTranslation()
             TtsHelper.stop(appContext)
-            "পড়া থামালাম"
+            if (stopped != null) "পড়া থামালাম — $stopped" else "পড়া থামালাম"
         }
         VoiceCommand.Explain -> explain()
         VoiceCommand.DraftComment -> draftComment()
@@ -118,7 +158,8 @@ class CommandExecutor(context: Context) {
             Settings.ACTION_AIRPLANE_MODE_SETTINGS, "এয়ারপ্লেন মোড"
         )
 
-        is VoiceCommand.Unknown -> smartFallback(command.raw)
+        is VoiceCommand.Unknown -> smartFallback(command.raw, onLog)
+    }
     }
 
     // ---------- browsing / copy-paste / comments / Drive / read-aloud / AI ----------
@@ -215,14 +256,61 @@ class CommandExecutor(context: Context) {
      * Unknown, so there is no loop). Without a key, the old
      * "বুঝতে পারিনি" behaviour is kept.
      */
-    private fun smartFallback(raw: String): String {
+    private fun smartFallback(raw: String, onLog: (String) -> Unit): String {
         if (!AIHelper.hasApiKey(appContext)) {
             return "বুঝতে পারিনি: “$raw”"
         }
         val mapped = AIHelper.smartMap(appContext, raw)
             ?: return "বুঝতে পারিনি: “$raw”"
         if (mapped is VoiceCommand.Unknown) return "বুঝতে পারিনি: “$raw”"
-        return run(mapped)
+        return run(mapped, onLog)
+    }
+
+    // ---------- continuous tasks: "করতে থাকো" / "X পৃষ্ঠা পর্যন্ত অনুবাদ করো" ----------
+
+    /** "করতে থাকো": repeats [command] on a loop until stopped or the time is up. */
+    private fun startRepeat(
+        command: VoiceCommand?,
+        durationMs: Long?,
+        onLog: (String) -> Unit
+    ): String {
+        val cmd = command
+            ?: return "আগে কোনো কাজ করিনি — প্রথমে কাজটি বলুন, তারপর “করতে থাকো” বলুন"
+        return ContinuousTaskManager.startRepeat(cmd, durationMs, this, onLog)
+    }
+
+    /** "X পৃষ্ঠা পর্যন্ত অনুবাদ করো": translates page by page into a file. */
+    private fun startTranslation(maxPages: Int?, onLog: (String) -> Unit): String {
+        // The loop itself checks for readable text on each page.
+        a11y() ?: return A11Y_OFF
+        if (!AIHelper.hasApiKey(appContext)) return AIHelper.NO_KEY
+        return ContinuousTaskManager.startTranslation(appContext, maxPages, onLog)
+    }
+
+    /** "এই পাতাটা অনুবাদ করো": one page, translated, spoken and saved. */
+    private fun translateOnePage(): String {
+        val service = a11y() ?: return A11Y_OFF
+        if (!AIHelper.hasApiKey(appContext)) return AIHelper.NO_KEY
+        val text = service.collectVisibleText(6000).takeIf { it.isNotBlank() }
+            ?: return "অনুবাদ করার মতো লেখা পেলাম না — লেখা আছে এমন পাতা খুলুন"
+        val res = AIHelper.translate(appContext, text)
+        if (!res.ok) return res.text
+        val handle = TranslationFile.create(appContext)
+        val saved = handle != null &&
+            TranslationFile.append(appContext, handle, 1, res.text)
+        TtsHelper.speak(appContext, res.text)
+        return if (saved) {
+            "অনুবাদ করলাম ও সংরক্ষণ করলাম: ${handle?.location}"
+        } else {
+            "অনুবাদ করলাম, কিন্তু ফাইলে সংরক্ষণ করা যায়নি"
+        }
+    }
+
+    /** "কী করছো": speaks and logs the running task's progress. */
+    private fun taskStatus(): String {
+        val s = ContinuousTaskManager.status()
+        TtsHelper.speak(appContext, s)
+        return s
     }
 
     // ---------- apps ----------
