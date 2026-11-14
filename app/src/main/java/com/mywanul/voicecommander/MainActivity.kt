@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var btnMic: ImageButton
     private lateinit var txtStatus: TextView
+    private lateinit var txtTaskStatus: TextView
     private lateinit var txtLastCommand: TextView
     private lateinit var txtLog: TextView
     private lateinit var txtA11yStatus: TextView
@@ -55,6 +56,7 @@ class MainActivity : AppCompatActivity() {
                 VoiceCommandService.KIND_ERROR -> appendLog("⚠ $text")
                 VoiceCommandService.KIND_STATUS -> txtStatus.text = text
             }
+            updateTaskStatus()
         }
     }
 
@@ -64,6 +66,7 @@ class MainActivity : AppCompatActivity() {
 
         btnMic = findViewById(R.id.btnMic)
         txtStatus = findViewById(R.id.txtStatus)
+        txtTaskStatus = findViewById(R.id.txtTaskStatus)
         txtLastCommand = findViewById(R.id.txtLastCommand)
         txtLog = findViewById(R.id.txtLog)
         txtA11yStatus = findViewById(R.id.txtA11yStatus)
@@ -91,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         updateA11yStatus()
         updateExactAlarmStatus()
         updateApiKeyStatus()
+        updateTaskStatus()
         val running = VoiceCommandService.isRunning
         if (running != listening) {
             listening = running
@@ -216,6 +220,17 @@ class MainActivity : AppCompatActivity() {
                 if (granted) R.string.perm_granted else R.string.perm_needed,
                 Toast.LENGTH_LONG
             ).show()
+        }
+    }
+
+    /** Shows the running continuous task ("করতে থাকো" / অনুবাদ), if any. */
+    private fun updateTaskStatus() {
+        txtTaskStatus.text = if (ContinuousTaskManager.isRunning()) {
+            getString(
+                R.string.task_status_running, ContinuousTaskManager.status()
+            )
+        } else {
+            getString(R.string.task_status_none)
         }
     }
 
