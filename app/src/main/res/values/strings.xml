@@ -20,9 +20,16 @@
     <string name="exact_alarm_prompt">অ্যালার্মের অনুমতি চালু করে ফিরে আসুন</string>
     <string name="a11y_on">Accessibility সেবা: চালু আছে ✓</string>
     <string name="a11y_off">Accessibility সেবা: চালু নেই — বোতাম চেপে সেটিংস থেকে চালু করুন</string>
+    <string name="ai_key_label">এআই (Gemini) — ফ্রি কী</string>
+    <string name="ai_key_hint">ফ্রি কী পাবেন aistudio.google.com থেকে — সেখানে “Get API key” চেপে কী তৈরি করে এখানে বসান</string>
+    <string name="ai_key_save">কী সংরক্ষণ করুন</string>
+    <string name="ai_key_saved_status">এআই কী সংরক্ষিত আছে ✓</string>
+    <string name="ai_key_missing_status">এআই কী দেওয়া নেই — “এটা বুঝিয়ে দাও” আর “কমেন্ট লিখে দাও” কাজ করবে না</string>
+    <string name="ai_key_saved">এআই কী সংরক্ষণ হলো</string>
+    <string name="ai_key_missing">আগে কী লিখুন</string>
     <string name="perm_granted">অনুমতি দেওয়া হয়েছে</string>
     <string name="perm_needed">মাইক আর কন্টাক্টের অনুমতি লাগবে</string>
     <string name="mic_on_toast">শোনা শুরু হলো</string>
     <string name="mic_off_toast">শোনা বন্ধ হলো</string>
-    <string name="hint_examples">যেমন: “হোয়াটসঅ্যাপ খোলো”, “রিফাতকে মেসেজ দাও, আমি আসছি”, “সকাল ৭টায় অ্যালার্ম দাও”, “টর্চ জ্বালাও”, “ওয়াইফাই চালু করো”</string>
+    <string name="hint_examples">যেমন: “হোয়াটসঅ্যাপ খোলো”, “রিফাতকে মেসেজ দাও, আমি আসছি”, “সকাল ৭টায় অ্যালার্ম দাও”, “টর্চ জ্বালাও”, “সার্চ করো হাদিসের বই”, “কপি করো”, “এই পাতাটা পড়ে শোনাও”, “এটা বুঝিয়ে দাও”, “ড্রাইভে খুঁজো আল মুহান্নাদ”</string>
 </resources>
