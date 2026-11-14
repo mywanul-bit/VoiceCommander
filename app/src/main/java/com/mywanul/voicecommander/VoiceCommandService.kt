@@ -184,6 +184,7 @@ class VoiceCommandService : Service() {
     private fun handleCommand(heard: String) {
         val command = CommandParser.parse(heard)
         if (command is VoiceCommand.StopListening) {
+            TtsHelper.stop(this)
             log(this, KIND_RESULT, "শোনা বন্ধ করছি")
             stopSelf()
             return
