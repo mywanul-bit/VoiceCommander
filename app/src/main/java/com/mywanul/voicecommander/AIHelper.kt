@@ -15,6 +15,7 @@ import java.net.URL
  * is bundled in the app, no money is involved. Used for:
  *  - "এটা বুঝিয়ে দাও" — explain clipboard/screen text in simple Bengali
  *  - "কমেন্ট লিখে দাও" — draft a comment about the visible post
+ *  - translate — translate screen text to simple Bengali, page by page
  *  - smart-command fallback — map an unknown spoken phrase to a known
  *    command (only when a key is saved)
  */
@@ -110,6 +111,15 @@ object AIHelper {
             "কমেন্ট লেখো (২-৩ লাইন)। কমেন্টটি যেন একজন সাধারণ পাঠকের মতো " +
             "শোনায়, অতিরঞ্জন নয়। শুধু কমেন্টটিই দাও, আর কিছু নয়।\n\n" +
             "পোস্ট:\n${postText.take(3000)}"
+        return ask(context, prompt)
+    }
+
+    /** "এই লেখাটা অনুবাদ করতে থাকো": translate [text] to simple colloquial Bengali. */
+    fun translate(context: Context, text: String): AiResult {
+        val prompt = "নিচের লেখাটি সহজ চলিত বাংলায় অনুবাদ করো। অর্থ হুবহু " +
+            "রাখো, কঠিন শব্দ ব্যবহার করো না, আর অতিরিক্ত ব্যাখ্যা দিও না — " +
+            "শুধু অনুবাদটুকু দাও।\n\n" +
+            "লেখা:\n${text.take(6000)}"
         return ask(context, prompt)
     }
 
