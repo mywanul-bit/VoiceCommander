@@ -61,7 +61,30 @@ class CommandExecutor(context: Context) {
         is VoiceCommand.TypeText -> typeText(command.text)
         is VoiceCommand.Message -> sendMessage(command.name, command.body)
         is VoiceCommand.Call -> call(command.name)
-        VoiceCommand.StopListening -> "শোনা বন্ধ করছি"
+        VoiceCommand.StopListening -> {
+            TtsHelper.stop(appContext)
+            "শোনা বন্ধ করছি"
+        }
+
+        // ---- browsing / copy-paste / comments / Drive / read-aloud / AI ----
+        is VoiceCommand.Search -> search(command.query)
+        is VoiceCommand.OpenLink -> openLink(command.label)
+        VoiceCommand.Bookmark -> bookmark()
+        VoiceCommand.CopyText -> copy()
+        VoiceCommand.CopyAllText -> copyAll()
+        VoiceCommand.PasteText -> paste()
+        VoiceCommand.ReadClipboardText -> InteractionHelper.readClipboardAloud(appContext)
+        is VoiceCommand.CommentWrite -> commentWrite(command.text)
+        VoiceCommand.CommentPost -> commentPost()
+        VoiceCommand.DriveOpen -> InteractionHelper.openDrive(appContext)
+        is VoiceCommand.DriveSearch -> driveSearch(command.name)
+        VoiceCommand.ReadPage -> readPage()
+        VoiceCommand.StopSpeech -> {
+            TtsHelper.stop(appContext)
+            "পড়া থামালাম"
+        }
+        VoiceCommand.Explain -> explain()
+        VoiceCommand.DraftComment -> draftComment()
 
         // ---- device control ----
         is VoiceCommand.AlarmSet ->
@@ -95,7 +118,111 @@ class CommandExecutor(context: Context) {
             Settings.ACTION_AIRPLANE_MODE_SETTINGS, "এয়ারপ্লেন মোড"
         )
 
-        is VoiceCommand.Unknown -> "বুঝতে পারিনি: “${command.raw}”"
+        is VoiceCommand.Unknown -> smartFallback(command.raw)
+    }
+
+    // ---------- browsing / copy-paste / comments / Drive / read-aloud / AI ----------
+
+    private fun search(query: String): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.search(service, query)
+    }
+
+    private fun openLink(label: String): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.openLink(service, label)
+    }
+
+    private fun bookmark(): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.bookmark(service)
+    }
+
+    private fun copy(): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.copy(service, appContext)
+    }
+
+    private fun copyAll(): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.copyAll(service, appContext)
+    }
+
+    private fun paste(): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.paste(service, appContext)
+    }
+
+    private fun commentWrite(text: String): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.writeComment(service, text)
+    }
+
+    private fun commentPost(): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.postComment(service)
+    }
+
+    private fun driveSearch(name: String): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.searchDrive(appContext, service, name)
+    }
+
+    private fun readPage(): String {
+        val service = a11y() ?: return A11Y_OFF
+        return InteractionHelper.readPageAloud(service, appContext)
+    }
+
+    /**
+     * "এটা বুঝিয়ে দাও": explains the clipboard text (or, when the
+     * clipboard is empty, the visible screen text) in simple Bengali
+     * and reads the answer aloud. Needs the free Gemini key.
+     */
+    private fun explain(): String {
+        val text = ClipboardHelper.read(appContext)?.takeIf { it.isNotBlank() }
+            ?: a11y()?.collectVisibleText()?.takeIf { it.isNotBlank() }
+            ?: return "বোঝানোর মতো কোনো লেখা পেলাম না — আগে কিছু কপি করুন বা লেখা আছে এমন পাতা খুলুন"
+        val res = AIHelper.explain(appContext, text)
+        if (!res.ok) return res.text
+        TtsHelper.speak(appContext, res.text)
+        return "বুঝিয়ে দিচ্ছি: ${res.text.take(300)}" +
+            if (res.text.length > 300) "…" else ""
+    }
+
+    /**
+     * "কমেন্ট লিখে দাও": Gemini drafts a short Bengali comment about
+     * the visible post and types it into the comment box. It is NOT
+     * posted — the user posts with "পোস্ট করো". Needs the free key.
+     */
+    private fun draftComment(): String {
+        val service = a11y() ?: return A11Y_OFF
+        val postText = service.collectVisibleText().takeIf { it.isNotBlank() }
+            ?: return "পোস্টের লেখা পেলাম না — আগে পোস্টটি খুলুন"
+        val res = AIHelper.draftComment(appContext, postText)
+        if (!res.ok) return res.text
+        val written = InteractionHelper.writeComment(service, res.text)
+        return if (written.startsWith("কমেন্ট লিখলাম")) {
+            "কমেন্ট লিখে দিলাম (পোস্ট করিনি): ${res.text}"
+        } else {
+            "কমেন্টের খসড়া তৈরি করলাম, কিন্তু লেখা যায়নি: $written\nখসড়া: ${res.text}"
+        }
+    }
+
+    /**
+     * Smart-command fallback: when the local parser matches nothing and
+     * a Gemini key is saved, Gemini maps the spoken phrase to a known
+     * command and it is run (one level only — smartMap never returns
+     * Unknown, so there is no loop). Without a key, the old
+     * "বুঝতে পারিনি" behaviour is kept.
+     */
+    private fun smartFallback(raw: String): String {
+        if (!AIHelper.hasApiKey(appContext)) {
+            return "বুঝতে পারিনি: “$raw”"
+        }
+        val mapped = AIHelper.smartMap(appContext, raw)
+            ?: return "বুঝতে পারিনি: “$raw”"
+        if (mapped is VoiceCommand.Unknown) return "বুঝতে পারিনি: “$raw”"
+        return run(mapped)
     }
 
     // ---------- apps ----------
