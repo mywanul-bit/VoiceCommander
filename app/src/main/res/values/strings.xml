@@ -8,6 +8,8 @@
     <string name="status_idle">বন্ধ আছে — মাইক বোতাম চাপুন</string>
     <string name="status_listening">শুনছি… কমান্ড বলুন</string>
     <string name="status_stopped">শোনা বন্ধ হয়েছে</string>
+    <string name="task_status_none">চলমান কাজ: নেই</string>
+    <string name="task_status_running">চলমান কাজ: %1$s</string>
     <string name="last_command_label">শেষ কমান্ড:</string>
     <string name="last_command_none">—</string>
     <string name="log_label">কমান্ডের লগ</string>
@@ -31,5 +33,5 @@
     <string name="perm_needed">মাইক আর কন্টাক্টের অনুমতি লাগবে</string>
     <string name="mic_on_toast">শোনা শুরু হলো</string>
     <string name="mic_off_toast">শোনা বন্ধ হলো</string>
-    <string name="hint_examples">যেমন: “হোয়াটসঅ্যাপ খোলো”, “রিফাতকে মেসেজ দাও, আমি আসছি”, “সকাল ৭টায় অ্যালার্ম দাও”, “টর্চ জ্বালাও”, “সার্চ করো হাদিসের বই”, “কপি করো”, “এই পাতাটা পড়ে শোনাও”, “এটা বুঝিয়ে দাও”, “ড্রাইভে খুঁজো আল মুহান্নাদ”</string>
+    <string name="hint_examples">যেমন: “হোয়াটসঅ্যাপ খোলো”, “রিফাতকে মেসেজ দাও, আমি আসছি”, “সকাল ৭টায় অ্যালার্ম দাও”, “টর্চ জ্বালাও”, “সার্চ করো হাদিসের বই”, “কপি করো”, “এই পাতাটা পড়ে শোনাও”, “এটা বুঝিয়ে দাও”, “ড্রাইভে খুঁজো আল মুহান্নাদ”, “নিচে যেতে থাকো”, “১০ পৃষ্ঠা পর্যন্ত অনুবাদ করো”, “কী করছো”</string>
 </resources>
