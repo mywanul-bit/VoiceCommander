@@ -72,6 +72,23 @@
             android:layout_marginTop="8dp"
             android:text="@string/btn_accessibility" />
 
+        <Button
+            android:id="@+id/btnExactAlarm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_exact_alarm" />
+
+        <TextView
+            android:id="@+id/txtExactAlarm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="@string/exact_alarm_off"
+            android:textColor="@color/grey_text"
+            android:textSize="14sp" />
+
         <TextView
             android:id="@+id/txtA11yStatus"
             android:layout_width="match_parent"
