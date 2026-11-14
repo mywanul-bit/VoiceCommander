@@ -12,6 +12,26 @@ sealed class VoiceCommand {
     data class Message(val name: String, val body: String) : VoiceCommand()
     data class Call(val name: String) : VoiceCommand()
     object StopListening : VoiceCommand()
+
+    // ---- device control ----
+    data class AlarmSet(val triggerAtMs: Long, val label: String) : VoiceCommand()
+    object AlarmDismiss : VoiceCommand()
+    data class Torch(val on: Boolean) : VoiceCommand()
+    object WifiOn : VoiceCommand()
+    object WifiOff : VoiceCommand()
+    data class WifiConnect(val ssid: String, val password: String?) : VoiceCommand()
+    data class Bluetooth(val on: Boolean) : VoiceCommand()
+    object VolumeUp : VoiceCommand()
+    object VolumeDown : VoiceCommand()
+    object VolumeMute : VoiceCommand()
+    object VolumeUnmute : VoiceCommand()
+    data class Brightness(val up: Boolean) : VoiceCommand()
+    object LockScreen : VoiceCommand()
+    object TakeScreenshot : VoiceCommand()
+    object OpenNotifications : VoiceCommand()
+    object MobileData : VoiceCommand()
+    object AirplaneMode : VoiceCommand()
+
     data class Unknown(val raw: String) : VoiceCommand()
 }
 
@@ -28,7 +48,8 @@ sealed class VoiceCommand {
 object CommandParser {
 
     fun parse(rawInput: String): VoiceCommand {
-        val input = rawInput.trim().lowercase().replace("\\s+".toRegex(), " ")
+        // Bengali digits (৭, ১০:৩০) become ASCII so time regexes work.
+        val input = bnToEn(rawInput.trim().lowercase().replace("\\s+".toRegex(), " "))
         if (input.isEmpty()) return VoiceCommand.Unknown(rawInput)
 
         if (input == "থামো" || input == "থেমে যাও" || input == "stop" ||
@@ -36,6 +57,19 @@ object CommandParser {
         ) {
             return VoiceCommand.StopListening
         }
+
+        // Device-control commands are checked BEFORE the generic open /
+        // close rules: "ওয়াইফাই চালু করো" ends in "চালু করো" and
+        // "সাউন্ড বন্ধ করো" ends in "বন্ধ করো" — both would otherwise be
+        // swallowed by OpenApp / CloseApp.
+        parseAlarm(input)?.let { return it }
+        parseTorch(input)?.let { return it }
+        parseWifi(input)?.let { return it }
+        parseBluetooth(input)?.let { return it }
+        parseVolume(input)?.let { return it }
+        parseBrightness(input)?.let { return it }
+        parseScreen(input)?.let { return it }
+        parseConnectivity(input)?.let { return it }
 
         parseMessage(input)?.let { return it }
         parseCall(input)?.let { return it }
@@ -78,6 +112,261 @@ object CommandParser {
         parseType(input)?.let { return it }
 
         return VoiceCommand.Unknown(rawInput)
+    }
+
+    // ---------- device control ----------
+
+    // Alarm: "সকাল ৭টায় অ্যালার্ম দাও", "অ্যালার্ম দাও ১০ মিনিট পর",
+    // "অ্যালার্ম বন্ধ করো", "set alarm at 7 am".
+    private fun parseAlarm(input: String): VoiceCommand? {
+        if (!input.contains("অ্যালার্ম") && !input.contains("alarm")) return null
+        if (input.contains("বন্ধ") || input.contains("বাতিল") ||
+            input.contains("alarm off") || input.contains("stop alarm") ||
+            input.contains("dismiss alarm")
+        ) {
+            return VoiceCommand.AlarmDismiss
+        }
+        val parsed = parseAlarmTime(input) ?: return null
+        return VoiceCommand.AlarmSet(parsed.first, parsed.second)
+    }
+
+    /** Returns (trigger time in ms, Bengali label) or null if no time is found. */
+    private fun parseAlarmTime(input: String): Pair<Long, String>? {
+        val now = System.currentTimeMillis()
+
+        // Relative: "১০ মিনিট পর" / "১ ঘণ্টা পর" / "আধা ঘণ্টা পর" / "in 10 minutes".
+        if (input.contains("আধা ঘণ্টা পর") || input.contains("আধ ঘণ্টা পর") ||
+            input.contains("half an hour")
+        ) {
+            return Pair(now + 30L * 60_000L, "৩০ মিনিট পর")
+        }
+        Regex("(\\d+)\\s*(মিনিট|minute|minutes|min)\\s*(পর|পরে|later|from now)")
+            .find(input)?.let {
+                val mins = it.groupValues[1].toIntOrNull() ?: return@let
+                return Pair(now + mins * 60_000L, "$mins মিনিট পর")
+            }
+        Regex("in\\s+(\\d+)\\s*(minute|minutes)")
+            .find(input)?.let {
+                val mins = it.groupValues[1].toIntOrNull() ?: return@let
+                return Pair(now + mins * 60_000L, "$mins মিনিট পর")
+            }
+        Regex("(\\d+)\\s*(ঘণ্টা|ঘন্টা|hour|hours|hr)\\s*(পর|পরে|later|from now)")
+            .find(input)?.let {
+                val hours = it.groupValues[1].toIntOrNull() ?: return@let
+                return Pair(now + hours * 3_600_000L, "$hours ঘণ্টা পর")
+            }
+
+        // Absolute: "সকাল ৭টা", "রাত ১০:৩০", "৭টা ৩০ মিনিট", "7 am".
+        val m = Regex("(\\d{1,2})(?::(\\d{2}))?").find(input) ?: return null
+        var hour = m.groupValues[1].toIntOrNull() ?: return null
+        var minute = m.groupValues[2].toIntOrNull()
+        if (minute == null) {
+            // "৭টা ৩০ মিনিট" — minutes written after the hour.
+            val rest = input.substring(minOf(m.range.last + 1, input.length))
+            minute = Regex("(\\d+)\\s*মিনিট").find(rest)
+                ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        }
+        if (hour > 23 || minute > 59) return null
+
+        val hasAm = input.contains(" am") || input.endsWith("am") ||
+            input.contains("এএম")
+        val hasPm = input.contains(" pm") || input.endsWith("pm") ||
+            input.contains("পিএম")
+        hour = when {
+            hasAm -> hour % 12
+            hasPm -> hour % 12 + 12
+            input.contains("দুপুর") ->
+                if (hour == 12) 12 else if (hour < 12) hour + 12 else hour
+            input.contains("বিকেল") || input.contains("সন্ধ্যা") ->
+                if (hour < 12) hour + 12 else hour
+            input.contains("রাত") -> when {
+                hour == 12 -> 0
+                hour < 5 -> hour
+                hour < 12 -> hour + 12
+                else -> hour
+            }
+            input.contains("সকাল") || input.contains("ভোর") -> hour % 12
+            else -> hour
+        }
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, hour)
+            set(java.util.Calendar.MINUTE, minute)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        if (cal.timeInMillis <= now) {
+            cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+        val period = when {
+            input.contains("সকাল") -> "সকাল "
+            input.contains("ভোর") -> "ভোর "
+            input.contains("দুপুর") -> "দুপুর "
+            input.contains("বিকেল") -> "বিকেল "
+            input.contains("সন্ধ্যা") -> "সন্ধ্যা "
+            input.contains("রাত") -> "রাত "
+            else -> ""
+        }
+        val label = "$period${"%02d".format(hour)}:${"%02d".format(minute)} অ্যালার্ম"
+        return Pair(cal.timeInMillis, label)
+    }
+
+    // Torch: "টর্চ জ্বালাও" / "টর্চ নেভাও" / "টর্চ অন করো" / "torch off".
+    private fun parseTorch(input: String): VoiceCommand? {
+        if (!input.contains("টর্চ") && !input.contains("torch") &&
+            !input.contains("ফ্ল্যাশলাইট") && !input.contains("flashlight")
+        ) {
+            return null
+        }
+        if (input.contains("নেভাও") || input.contains("নিভাও") ||
+            input.contains("বন্ধ") || input.contains("অফ") ||
+            input.contains("off")
+        ) {
+            return VoiceCommand.Torch(false)
+        }
+        if (input.contains("জ্বালাও") || input.contains("জ্বালান") ||
+            input.contains("চালু") || input.contains(" অন") ||
+            input.endsWith("on") || input.contains("on করো")
+        ) {
+            return VoiceCommand.Torch(true)
+        }
+        return null
+    }
+
+    // WiFi: "ওয়াইফাই চালু করো" / "ওয়াইফাই বন্ধ করো" /
+    // "ওয়াইফাই কানেক্ট করো আমার_নেটওয়ার্ক পাসওয়ার্ড 1234".
+    private fun parseWifi(input: String): VoiceCommand? {
+        if (!input.contains("ওয়াইফাই") && !input.contains("wifi") &&
+            !input.contains("ওয়াই-ফাই")
+        ) {
+            return null
+        }
+        if (input.contains("কানেক্ট") || input.contains("connect")) {
+            var rest = input.substringAfter("কানেক্ট করো", "")
+            if (rest.isEmpty()) rest = input.substringAfter("connect to wifi", "")
+            if (rest.isEmpty()) rest = input.substringAfter("connect", "")
+            rest = rest.trim().removePrefix("ওয়াইফাই").removePrefix("wifi").trim()
+            if (rest.isEmpty()) return null
+            var ssid = rest
+            var password: String? = null
+            val pwIdx = rest.indexOf("পাসওয়ার্ড")
+            val enIdx = rest.indexOf(" password ")
+            when {
+                pwIdx >= 0 -> {
+                    ssid = rest.substring(0, pwIdx).trim()
+                    password = rest.substring(pwIdx + "পাসওয়ার্ড".length)
+                        .trim().trimStart(':', ' ').ifEmpty { null }
+                }
+                enIdx >= 0 -> {
+                    ssid = rest.substring(0, enIdx).trim()
+                    password = rest.substring(enIdx + " password ".length)
+                        .trim().ifEmpty { null }
+                }
+            }
+            if (ssid.isEmpty()) return null
+            return VoiceCommand.WifiConnect(ssid, password)
+        }
+        if (input.contains("বন্ধ") || input.contains("off")) {
+            return VoiceCommand.WifiOff
+        }
+        if (input.contains("চালু") || input.contains("অন") ||
+            input.contains("on")
+        ) {
+            return VoiceCommand.WifiOn
+        }
+        return null
+    }
+
+    // Bluetooth: "ব্লুটুথ চালু করো" / "ব্লুটুথ বন্ধ করো".
+    private fun parseBluetooth(input: String): VoiceCommand? {
+        if (!input.contains("ব্লুটুথ") && !input.contains("bluetooth")) return null
+        if (input.contains("বন্ধ") || input.contains("off")) {
+            return VoiceCommand.Bluetooth(false)
+        }
+        if (input.contains("চালু") || input.contains("অন") ||
+            input.contains("on")
+        ) {
+            return VoiceCommand.Bluetooth(true)
+        }
+        return null
+    }
+
+    // Volume: "ভলিউম বাড়াও" / "ভলিউম কমাও" / "সাউন্ড বন্ধ করো" / "সাউন্ড চালু করো".
+    private fun parseVolume(input: String): VoiceCommand? {
+        if (input.contains("ভলিউম বাড়াও") || input.contains("ভলিউম বাড়ান") ||
+            input.contains("volume up") || input.contains("ভলিউম আপ")
+        ) {
+            return VoiceCommand.VolumeUp
+        }
+        if (input.contains("ভলিউম কমাও") || input.contains("ভলিউম কমান") ||
+            input.contains("volume down") || input.contains("ভলিউম ডাউন")
+        ) {
+            return VoiceCommand.VolumeDown
+        }
+        if (input.contains("সাউন্ড বন্ধ") || input.contains("মিউট") ||
+            input.contains("mute") || input.contains("চুপ করো")
+        ) {
+            return VoiceCommand.VolumeMute
+        }
+        if (input.contains("সাউন্ড চালু") || input.contains("আনমিউট") ||
+            input.contains("unmute")
+        ) {
+            return VoiceCommand.VolumeUnmute
+        }
+        return null
+    }
+
+    // Brightness: "ব্রাইটনেস বাড়াও" / "ব্রাইটনেস কমাও" / "আলো কমাও".
+    private fun parseBrightness(input: String): VoiceCommand? {
+        if (!input.contains("ব্রাইটনেস") && !input.contains("brightness") &&
+            !input.contains("আলো")
+        ) {
+            return null
+        }
+        if (input.contains("বাড়াও") || input.contains("বাড়ান") ||
+            input.contains("বেশি") || input.contains("brightness up")
+        ) {
+            return VoiceCommand.Brightness(true)
+        }
+        if (input.contains("কমাও") || input.contains("কমান") ||
+            input.contains("কম") || input.contains("brightness down")
+        ) {
+            return VoiceCommand.Brightness(false)
+        }
+        return null
+    }
+
+    // Screen: "স্ক্রিন বন্ধ করো" (lock) / "স্ক্রিনশট নাও" / "নোটিফিকেশন খোলো".
+    private fun parseScreen(input: String): VoiceCommand? {
+        if (input.contains("স্ক্রিনশট") || input.contains("screenshot")) {
+            return VoiceCommand.TakeScreenshot
+        }
+        if (input.contains("স্ক্রিন বন্ধ") || input.contains("লক করো") ||
+            input == "লক" || input.contains("lock screen") ||
+            input.contains("স্ক্রিন লক")
+        ) {
+            return VoiceCommand.LockScreen
+        }
+        if (input.contains("নোটিফিকেশন") &&
+            (input.contains("খোলো") || input.contains("খুলো") ||
+                input.contains("দেখাও"))
+        ) {
+            return VoiceCommand.OpenNotifications
+        }
+        return null
+    }
+
+    // Mobile data / airplane mode: not toggleable by a normal app, so the
+    // executor opens the settings page instead.
+    private fun parseConnectivity(input: String): VoiceCommand? {
+        if (input.contains("মোবাইল ডাটা") || input.contains("mobile data")) {
+            return VoiceCommand.MobileData
+        }
+        if (input.contains("এয়ারপ্লেন") || input.contains("airplane") ||
+            input.contains("ফ্লাইট মোড")
+        ) {
+            return VoiceCommand.AirplaneMode
+        }
+        return null
     }
 
     // ---------- message: "রিফাতকে মেসেজ দাও, আমি আসছি" ----------
@@ -196,6 +485,15 @@ object CommandParser {
             }
         }
         return null
+    }
+
+    /** Bengali digits (০-৯) to ASCII (0-9) so number regexes work. */
+    private fun bnToEn(s: String): String {
+        val map = mapOf(
+            '০' to '0', '১' to '1', '২' to '2', '৩' to '3', '৪' to '4',
+            '৫' to '5', '৬' to '6', '৭' to '7', '৮' to '8', '৯' to '9'
+        )
+        return s.map { map[it] ?: it }.joinToString("")
     }
 
     /** "রিফাতকে" -> "রিফাত", "রিফাতরে" -> "রিফাত", "রিফাত ভাইকে" -> "রিফাত ভাই".
