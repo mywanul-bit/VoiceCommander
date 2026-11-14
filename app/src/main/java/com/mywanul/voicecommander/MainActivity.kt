@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
@@ -34,6 +35,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtLastCommand: TextView
     private lateinit var txtLog: TextView
     private lateinit var txtA11yStatus: TextView
+    private lateinit var etApiKey: EditText
+    private lateinit var txtApiKeyStatus: TextView
 
     private var listening = false
     private var logStarted = false
@@ -64,12 +67,15 @@ class MainActivity : AppCompatActivity() {
         txtLastCommand = findViewById(R.id.txtLastCommand)
         txtLog = findViewById(R.id.txtLog)
         txtA11yStatus = findViewById(R.id.txtA11yStatus)
+        etApiKey = findViewById(R.id.etApiKey)
+        txtApiKeyStatus = findViewById(R.id.txtApiKeyStatus)
 
         btnMic.setOnClickListener { toggleListening() }
         findViewById<Button>(R.id.btnPermissions).setOnClickListener { requestPermissions() }
         findViewById<Button>(R.id.btnExactAlarm).setOnClickListener {
             requestExactAlarmPermission()
         }
+        findViewById<Button>(R.id.btnSaveApiKey).setOnClickListener { saveApiKey() }
         findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             Toast.makeText(this, "ভয়েস কমান্ডার খুঁজে চালু করুন", Toast.LENGTH_LONG).show()
@@ -84,6 +90,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         updateA11yStatus()
         updateExactAlarmStatus()
+        updateApiKeyStatus()
         val running = VoiceCommandService.isRunning
         if (running != listening) {
             listening = running
@@ -162,6 +169,26 @@ class MainActivity : AppCompatActivity() {
             )
         )
         Toast.makeText(this, R.string.exact_alarm_prompt, Toast.LENGTH_LONG).show()
+    }
+
+    /** Saves the free Gemini API key (from aistudio.google.com) for the AI features. */
+    private fun saveApiKey() {
+        val key = etApiKey.text.toString().trim()
+        if (key.isEmpty()) {
+            Toast.makeText(this, R.string.ai_key_missing, Toast.LENGTH_LONG).show()
+            return
+        }
+        AIHelper.saveApiKey(this, key)
+        etApiKey.text.clear()
+        updateApiKeyStatus()
+        Toast.makeText(this, R.string.ai_key_saved, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateApiKeyStatus() {
+        txtApiKeyStatus.setText(
+            if (AIHelper.hasApiKey(this)) R.string.ai_key_saved_status
+            else R.string.ai_key_missing_status
+        )
     }
 
     private fun updateExactAlarmStatus() {
