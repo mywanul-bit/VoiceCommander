@@ -2,11 +2,13 @@ package com.mywanul.voicecommander
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -65,6 +67,9 @@ class MainActivity : AppCompatActivity() {
 
         btnMic.setOnClickListener { toggleListening() }
         findViewById<Button>(R.id.btnPermissions).setOnClickListener { requestPermissions() }
+        findViewById<Button>(R.id.btnExactAlarm).setOnClickListener {
+            requestExactAlarmPermission()
+        }
         findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             Toast.makeText(this, "ভয়েস কমান্ডার খুঁজে চালু করুন", Toast.LENGTH_LONG).show()
@@ -78,6 +83,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateA11yStatus()
+        updateExactAlarmStatus()
         val running = VoiceCommandService.isRunning
         if (running != listening) {
             listening = running
@@ -126,12 +132,47 @@ class MainActivity : AppCompatActivity() {
         val permissions = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.READ_CONTACTS,
-            Manifest.permission.CALL_PHONE
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.CAMERA
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         ActivityCompat.requestPermissions(this, permissions.toTypedArray(), REQUEST_PERMISSIONS)
+    }
+
+    /** Opens the system screen where exact-alarm permission is granted (Android 12+). */
+    private fun requestExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            Toast.makeText(this, R.string.exact_alarm_on, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        if (am.canScheduleExactAlarms()) {
+            Toast.makeText(this, R.string.exact_alarm_on, Toast.LENGTH_SHORT).show()
+            return
+        }
+        startActivity(
+            Intent(
+                Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                Uri.parse("package:$packageName")
+            )
+        )
+        Toast.makeText(this, R.string.exact_alarm_prompt, Toast.LENGTH_LONG).show()
+    }
+
+    private fun updateExactAlarmStatus() {
+        val txt = findViewById<TextView>(R.id.txtExactAlarm)
+        val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.ALARM_SERVICE) as AlarmManager)
+                .canScheduleExactAlarms()
+        } else {
+            true
+        }
+        txt.setText(if (granted) R.string.exact_alarm_on else R.string.exact_alarm_off)
     }
 
     override fun onRequestPermissionsResult(
