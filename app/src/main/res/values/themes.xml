@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VoiceCommander" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="colorPrimary">@color/teal</item>
+        <item name="colorPrimaryDark">@color/teal_dark</item>
+        <item name="colorAccent">@color/amber</item>
+        <item name="android:textColorPrimary">@color/dark_text</item>
+    </style>
+</resources>
