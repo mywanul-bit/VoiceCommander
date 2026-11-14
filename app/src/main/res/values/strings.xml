@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ভয়েস কমান্ডার</string>
+    <string name="accessibility_service_label">ভয়েস কমান্ডার</string>
+    <string name="accessibility_service_description">ভয়েস কমান্ডে ফোন চালাতে এই সেবা লাগবে — অ্যাপ খোলা, বাটনে ক্লিক, লেখা টাইপ করা আর স্ক্রল করার জন্য।</string>
+
+    <string name="title_listen">শুনতে শুরু করুন</string>
+    <string name="status_idle">বন্ধ আছে — মাইক বোতাম চাপুন</string>
+    <string name="status_listening">শুনছি… কমান্ড বলুন</string>
+    <string name="status_stopped">শোনা বন্ধ হয়েছে</string>
+    <string name="last_command_label">শেষ কমান্ড:</string>
+    <string name="last_command_none">—</string>
+    <string name="log_label">কমান্ডের লগ</string>
+    <string name="log_empty">এখনো কোনো কমান্ড শোনা হয়নি।</string>
+    <string name="btn_permissions">অনুমতি দিন (মাইক + কন্টাক্ট)</string>
+    <string name="btn_accessibility">Accessibility সেবা চালু করুন</string>
+    <string name="a11y_on">Accessibility সেবা: চালু আছে ✓</string>
+    <string name="a11y_off">Accessibility সেবা: চালু নেই — বোতাম চেপে সেটিংস থেকে চালু করুন</string>
+    <string name="perm_granted">অনুমতি দেওয়া হয়েছে</string>
+    <string name="perm_needed">মাইক আর কন্টাক্টের অনুমতি লাগবে</string>
+    <string name="mic_on_toast">শোনা শুরু হলো</string>
+    <string name="mic_off_toast">শোনা বন্ধ হলো</string>
+    <string name="hint_examples">যেমন: “হোয়াটসঅ্যাপ খোলো”, “রিফাতকে মেসেজ দাও, আমি আসছি”, “নিচে যাও”, “ব্যাকে যাও”</string>
+</resources>
