@@ -32,6 +32,23 @@ sealed class VoiceCommand {
     object MobileData : VoiceCommand()
     object AirplaneMode : VoiceCommand()
 
+    // ---- browsing / copy-paste / comments / Drive / read-aloud / AI ----
+    data class Search(val query: String) : VoiceCommand()
+    data class OpenLink(val label: String) : VoiceCommand()
+    object Bookmark : VoiceCommand()
+    object CopyText : VoiceCommand()
+    object CopyAllText : VoiceCommand()
+    object PasteText : VoiceCommand()
+    object ReadClipboardText : VoiceCommand()
+    data class CommentWrite(val text: String) : VoiceCommand()
+    object CommentPost : VoiceCommand()
+    object DriveOpen : VoiceCommand()
+    data class DriveSearch(val name: String) : VoiceCommand()
+    object ReadPage : VoiceCommand()
+    object StopSpeech : VoiceCommand()
+    object Explain : VoiceCommand()
+    object DraftComment : VoiceCommand()
+
     data class Unknown(val raw: String) : VoiceCommand()
 }
 
@@ -43,7 +60,10 @@ sealed class VoiceCommand {
  *  - "রিফাতকে কল করো"
  *  - "ব্যাকে যাও" / "হোমে যাও" / "নিচে যাও"
  *  - "লিখো আমি এখন বাসায় যাচ্ছি"
- *  - "সাবমিট চাপো" / "ক্লিক ক"
+ *  - "সকাল ৭টায় অ্যালার্ম দাও", "টর্চ জ্বালাও", "ওয়াইফাই চালু করো"
+ *  - "সার্চ করো হাদিসের বই", "লিংক খোলো আরও দেখুন", "কপি করো", "পেস্ট করো"
+ *  - "কমেন্ট লিখো খুব সুন্দর", "কমেন্ট পোস্ট করো", "ড্রাইভ খোলো",
+ *    "ড্রাইভে খুঁজো আল মুহান্নাদ", "এই পাতাটা পড়ে শোনাও", "এটা বুঝিয়ে দাও"
  */
 object CommandParser {
 
@@ -57,6 +77,13 @@ object CommandParser {
         ) {
             return VoiceCommand.StopListening
         }
+
+        // Interaction commands (browsing, copy/paste, comments, Drive,
+        // read-aloud, AI) are checked BEFORE the device and generic
+        // rules: "কমেন্ট পোস্ট করো" and "ড্রাইভ খোলো" would otherwise be
+        // swallowed by the generic handlers below, and "চুপ করো" must
+        // stop speech instead of muting (see parseVolume).
+        parseInteraction(input)?.let { return it }
 
         // Device-control commands are checked BEFORE the generic open /
         // close rules: "ওয়াইফাই চালু করো" ends in "চালু করো" and
@@ -112,6 +139,156 @@ object CommandParser {
         parseType(input)?.let { return it }
 
         return VoiceCommand.Unknown(rawInput)
+    }
+
+    // ---------- interaction: browsing / copy-paste / comments / Drive / AI ----------
+
+    private fun parseInteraction(input: String): VoiceCommand? {
+        parseBrowse(input)?.let { return it }
+        parseCopyPaste(input)?.let { return it }
+        parseComment(input)?.let { return it }
+        parseDrive(input)?.let { return it }
+        parseReadAloud(input)?.let { return it }
+        parseAi(input)?.let { return it }
+        parseStopSpeech(input)?.let { return it }
+        return null
+    }
+
+    // Browsing: "সার্চ করো <কোয়েরি>" / "লিংক খোলো <টেক্সট>" / "বুকমার্ক করো".
+    private fun parseBrowse(input: String): VoiceCommand? {
+        for (prefix in listOf(
+            "সার্চ করো ", "সার্চ কর ", "খুঁজো ", "খোঁজো ",
+            "search ", "search for "
+        )) {
+            if (input.startsWith(prefix)) {
+                val query = input.removePrefix(prefix).trim()
+                if (query.isNotEmpty()) return VoiceCommand.Search(query)
+            }
+        }
+        for (prefix in listOf(
+            "লিংক খোলো ", "লিংকটি খোলো ", "open link ", "open the link "
+        )) {
+            if (input.startsWith(prefix)) {
+                val label = input.removePrefix(prefix).trim()
+                if (label.isNotEmpty()) return VoiceCommand.OpenLink(label)
+            }
+        }
+        if (input.contains("বুকমার্ক") || input.contains("bookmark")) {
+            return VoiceCommand.Bookmark
+        }
+        return null
+    }
+
+    // Copy / paste: "কপি করো" / "সব কপি করো" / "পেস্ট করো" /
+    // "কপি করা লেখা পড়ো". Copy-all is checked before plain copy.
+    private fun parseCopyPaste(input: String): VoiceCommand? {
+        if (input.contains("কপি করা লেখা পড়ো") ||
+            input.contains("কপি করা লেখা পড়ে শোনাও") ||
+            input == "read clipboard" || input.contains("read clipboard")
+        ) {
+            return VoiceCommand.ReadClipboardText
+        }
+        if (input.contains("সব কপি করো") || input == "copy all" ||
+            input.contains("copy all")
+        ) {
+            return VoiceCommand.CopyAllText
+        }
+        if (input == "কপি করো" || input == "কপি" || input == "copy" ||
+            input.contains("কপি করো")
+        ) {
+            return VoiceCommand.CopyText
+        }
+        if (input == "পেস্ট করো" || input == "পেস্ট" || input == "paste" ||
+            input.contains("পেস্ট করো")
+        ) {
+            return VoiceCommand.PasteText
+        }
+        return null
+    }
+
+    // Comments: "কমেন্ট লিখো <টেক্সট>" / "কমেন্ট পোস্ট করো" / "পোস্ট করো".
+    private fun parseComment(input: String): VoiceCommand? {
+        if (input == "কমেন্ট পোস্ট করো" || input == "পোস্ট করো" ||
+            input == "পোস্ট করুন" || input == "post comment" ||
+            input.contains("কমেন্ট পোস্ট করো")
+        ) {
+            return VoiceCommand.CommentPost
+        }
+        for (prefix in listOf(
+            "কমেন্ট লিখো ", "কমেন্ট লেখো ", "কমেন্ট করো ",
+            "মন্তব্য লিখো ", "মন্তব্য লেখো ", "write a comment ", "comment "
+        )) {
+            if (input.startsWith(prefix)) {
+                val text = input.removePrefix(prefix).trim()
+                if (text.isNotEmpty()) return VoiceCommand.CommentWrite(text)
+            }
+        }
+        return null
+    }
+
+    // Drive: "ড্রাইভ খোলো" / "ড্রাইভে খুঁজো <নাম>" / "ড্রাইভ থেকে খোলো <নাম>".
+    // Must run before parseOpen — "ড্রাইভ খোলো" ends in "খোলো".
+    private fun parseDrive(input: String): VoiceCommand? {
+        if (input == "ড্রাইভ খোলো" || input == "ড্রাইভ" ||
+            input == "open drive" || input.contains("ড্রাইভ খোলো") ||
+            input.contains("গুগল ড্রাইভ খোলো")
+        ) {
+            return VoiceCommand.DriveOpen
+        }
+        for (prefix in listOf(
+            "ড্রাইভে খুঁজো ", "ড্রাইভে খোঁজো ", "ড্রাইভ থেকে খোলো ",
+            "drive search ", "search drive for ", "search in drive "
+        )) {
+            if (input.startsWith(prefix)) {
+                val name = input.removePrefix(prefix).trim()
+                if (name.isNotEmpty()) return VoiceCommand.DriveSearch(name)
+            }
+        }
+        return null
+    }
+
+    // Read aloud: "এই পাতাটা পড়ে শোনাও" / "read this page".
+    // Checked after copy-paste so "কপি করা লেখা পড়ে শোনাও" keeps its
+    // clipboard meaning.
+    private fun parseReadAloud(input: String): VoiceCommand? {
+        if (input.contains("পড়ে শোনাও") || input.contains("পড়ে শোনান") ||
+            input.contains("এই পাতাটা পড়ো") || input.contains("পাতাটা পড়ো") ||
+            input == "read this page" || input.contains("read this page")
+        ) {
+            return VoiceCommand.ReadPage
+        }
+        return null
+    }
+
+    // AI (needs the free Gemini key): "এটা বুঝিয়ে দাও" / "কমেন্ট লিখে দাও".
+    private fun parseAi(input: String): VoiceCommand? {
+        if (input.contains("বুঝিয়ে দাও") || input.contains("বুঝিয়ে বলো") ||
+            input.contains("বুঝিয়ে দিন") || input == "explain this" ||
+            input.contains("explain this")
+        ) {
+            return VoiceCommand.Explain
+        }
+        if (input.contains("কমেন্ট লিখে দাও") ||
+            input.contains("কমেন্ট লিখে দিন") ||
+            input == "write a comment for me" ||
+            input.contains("write a comment for me")
+        ) {
+            return VoiceCommand.DraftComment
+        }
+        return null
+    }
+
+    // Stop reading: "চুপ করো" / "পড়া থামাও". This is checked before
+    // parseVolume, so "চুপ করো" stops speech instead of muting
+    // ("সাউন্ড বন্ধ করো" still mutes).
+    private fun parseStopSpeech(input: String): VoiceCommand? {
+        if (input == "চুপ করো" || input.contains("পড়া থামাও") ||
+            input.contains("পড়া বন্ধ করো") || input.contains("আর পড়ো না") ||
+            input == "stop reading" || input.contains("stop speaking")
+        ) {
+            return VoiceCommand.StopSpeech
+        }
+        return null
     }
 
     // ---------- device control ----------
@@ -303,7 +480,7 @@ object CommandParser {
             return VoiceCommand.VolumeDown
         }
         if (input.contains("সাউন্ড বন্ধ") || input.contains("মিউট") ||
-            input.contains("mute") || input.contains("চুপ করো")
+            input.contains("mute")
         ) {
             return VoiceCommand.VolumeMute
         }
