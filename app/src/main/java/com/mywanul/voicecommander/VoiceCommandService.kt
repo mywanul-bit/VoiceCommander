@@ -75,6 +75,9 @@ class VoiceCommandService : Service() {
     }
 
     override fun onDestroy() {
+        // A running task must not outlive listening — once the mic is
+        // off there is no voice command left to stop it.
+        ContinuousTaskManager.stop()
         handler.removeCallbacksAndMessages(null)
         try {
             recognizer?.cancel()
@@ -184,6 +187,18 @@ class VoiceCommandService : Service() {
     private fun handleCommand(heard: String) {
         val command = CommandParser.parse(heard)
         if (command is VoiceCommand.StopListening) {
+            if (ContinuousTaskManager.isRunning()) {
+                // "থামো" stops the running task, but listening keeps
+                // going so the user can give the next command. The
+                // executor's StopListening case stops the task (and
+                // the speech) and reports it in the log.
+                executor.execute(command) { result ->
+                    log(this, KIND_RESULT, result)
+                }
+                scheduleRestart(300)
+                return
+            }
+            ContinuousTaskManager.stop()
             TtsHelper.stop(this)
             log(this, KIND_RESULT, "শোনা বন্ধ করছি")
             stopSelf()
