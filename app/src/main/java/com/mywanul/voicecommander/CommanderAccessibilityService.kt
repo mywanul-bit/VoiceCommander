@@ -128,20 +128,28 @@ class CommanderAccessibilityService : AccessibilityService() {
     fun pasteInto(node: AccessibilityNodeInfo): Boolean =
         node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
 
-    /** Select-all + copy from [node] (API 18+). */
+    /** Select-all + copy from [node]. There is no ACTION_SELECT_ALL in the
+     *  accessibility API — select the whole text with ACTION_SET_SELECTION. */
     fun copyFrom(node: AccessibilityNodeInfo): Boolean {
-        node.performAction(AccessibilityNodeInfo.ACTION_SELECT_ALL)
+        val text = node.text?.toString() ?: return false
+        val args = Bundle()
+        args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+        args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, text.length)
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)
         Thread.sleep(200)
         return node.performAction(AccessibilityNodeInfo.ACTION_COPY)
     }
 
     /**
-     * Submits a search box with the keyboard Enter key.
-     * ACTION_IME_ENTER exists only on Android 13+ — false below that.
+     * Tries to submit a search box with the keyboard Enter key.
+     * Android offers NO direct IME-Enter for an accessibility service:
+     * there is no AccessibilityNodeInfo.ACTION_IME_ENTER constant and no
+     * dispatchKeyEvent() on AccessibilityService (onKeyEvent only receives
+     * keys). So this always returns false and the caller falls back to
+     * the on-screen search button, a suggestion, or the user's keyboard.
      */
     fun performImeEnter(node: AccessibilityNodeInfo): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
-        return node.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER)
+        return false
     }
 
     /**
