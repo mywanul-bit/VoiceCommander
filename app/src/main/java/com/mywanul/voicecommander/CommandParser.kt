@@ -116,7 +116,7 @@ object CommandParser {
         parseScreen(input)?.let { return it }
         parseConnectivity(input)?.let { return it }
 
-        parseMessage(input)?.let { return it }
+        parseMessage(input, rawInput)?.let { return it }
         parseCall(input)?.let { return it }
         parseOpen(input)?.let { return it }
 
@@ -718,7 +718,7 @@ object CommandParser {
         "মেসেজ করো", "মেসেজ লিখো", "মেসেজ"
     )
 
-    private fun parseMessage(input: String): VoiceCommand.Message? {
+    private fun parseMessage(input: String, rawInput: String): VoiceCommand? {
         for (marker in messageMarkers) {
             val idx = input.indexOf(marker)
             // Name must come before the marker, e.g. "রিফাতকে মেসেজ দাও ..."
