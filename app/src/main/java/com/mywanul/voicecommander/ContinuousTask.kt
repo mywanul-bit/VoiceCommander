@@ -390,7 +390,7 @@ object ContinuousTaskManager {
                 } catch (e: Exception) {
                     AIHelper.AiResult(false, "অনুবাদে সমস্যা: ${e.message}")
                 }
-                if (translated.ok) break
+                if (translated?.ok == true) break
                 if (tries == 1) onLog("অনুবাদে সমস্যা — আবার চেষ্টা করছি")
             }
             if (translated == null || !translated.ok) {
