@@ -160,8 +160,9 @@ object InteractionHelper {
 
     /**
      * "সার্চ করো <কোয়েরি>": taps the search box, types the query and
-     * submits it (IME Enter on Android 13+, else the on-screen
-     * search button, else the first suggestion containing the query).
+     * submits it (the on-screen search button, else the first suggestion
+     * containing the query — Android has no direct IME-Enter for an
+     * accessibility service, so the keyboard Enter is the last resort).
      */
     fun search(service: CommanderAccessibilityService, query: String): String {
         val box = service.findSearchBox()
