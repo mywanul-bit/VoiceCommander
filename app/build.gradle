@@ -31,6 +31,15 @@ android {
 }
 
 dependencies {
+    // Keep the stdlib jdk7/jdk8 helpers on the same version as the Kotlin
+    // plugin (1.9.24). Older transitive copies (1.6.x) carry classes that
+    // already live inside kotlin-stdlib 1.9.24 and break the build with
+    // "Duplicate class" errors. The 1.9.24 jdk7/jdk8 artifacts are empty
+    // shells that just point at kotlin-stdlib.
+    constraints {
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.24')
+        implementation('org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24')
+    }
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
