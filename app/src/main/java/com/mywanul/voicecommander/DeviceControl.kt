@@ -299,13 +299,12 @@ object BluetoothHelper {
         }
     }
 
-    /** Bluetooth settings panel (Android 10+) or the Bluetooth settings page. */
+    /** Bluetooth settings page. There is no Bluetooth entry in
+     *  Settings.Panel (only Internet, NFC, Volume, Wi-Fi), so open the
+     *  Bluetooth settings page directly. */
     fun panelIntent(context: Context): Intent {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Intent(Settings.Panel.ACTION_BLUETOOTH)
-        } else {
-            Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-        }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }
 
