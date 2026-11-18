@@ -4,6 +4,9 @@
 
     <!-- Voice input -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Floating bubble: "Display over other apps" (special permission,
+         granted only in Settings — declaring it does not grant it) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Contacts lookup for "মেসেজ দাও / কল করো" -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Close a foreground app -->
@@ -34,6 +37,16 @@
     <!-- Brightness: special permission, granted from Settings -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
+    <!-- Speech recognition / TTS service visibility (targetSdk 30+) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -54,6 +67,12 @@
 
         <service
             android:name=".VoiceCommandService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Floating bubble over other apps (overlay + mic trigger) -->
+        <service
+            android:name=".FloatingBubbleService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 

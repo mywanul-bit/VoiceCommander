@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Floating bubble: a round mic button that floats over other apps.
+     Tapped = start listening, long-pressed (400 ms) = live listening,
+     dragged = move, released = snap to the nearest screen edge. -->
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="64dp"
+    android:layout_height="64dp"
+    android:background="@drawable/circle_button"
+    android:contentDescription="ভয়েস কমান্ডার বাবল"
+    android:scaleType="centerInside"
+    android:src="@drawable/ic_mic"
+    android:tint="@color/white" />

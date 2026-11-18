@@ -42,6 +42,33 @@
             android:textColor="@color/grey_text"
             android:textSize="15sp" />
 
+        <!-- Live listening: keeps re-arming after silence, until the
+             idle bound stops it -->
+        <Button
+            android:id="@+id/btnLive"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/btn_live" />
+
+        <!-- Floating bubble over other apps -->
+        <Button
+            android:id="@+id/btnBubble"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_bubble" />
+
+        <TextView
+            android:id="@+id/txtBubbleStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="@string/bubble_off"
+            android:textColor="@color/grey_text"
+            android:textSize="14sp" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

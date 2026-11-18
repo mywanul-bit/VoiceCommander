@@ -34,4 +34,15 @@
     <string name="mic_on_toast">শোনা শুরু হলো</string>
     <string name="mic_off_toast">শোনা বন্ধ হলো</string>
     <string name="hint_examples">যেমন: “হোয়াটসঅ্যাপ খোলো”, “রিফাতকে মেসেজ দাও, আমি আসছি”, “সকাল ৭টায় অ্যালার্ম দাও”, “টর্চ জ্বালাও”, “সার্চ করো হাদিসের বই”, “কপি করো”, “এই পাতাটা পড়ে শোনাও”, “এটা বুঝিয়ে দাও”, “ড্রাইভে খুঁজো আল মুহান্নাদ”, “নিচে যেতে থাকো”, “১০ পৃষ্ঠা পর্যন্ত অনুবাদ করো”, “কী করছো”</string>
+
+    <string name="btn_live">লাইভ শোনা চালু করুন</string>
+    <string name="live_on">লাইভ শোনা চালু আছে — থামাতে চাপুন</string>
+    <string name="live_off">লাইভ শোনা বন্ধ আছে</string>
+    <string name="live_started">লাইভ শোনা শুরু হলো</string>
+    <string name="live_stopped">লাইভ শোনা বন্ধ হলো</string>
+    <string name="btn_bubble">ভাসমান বাবল চালু করুন</string>
+    <string name="bubble_on">ভাসমান বাবল: চালু আছে ✓</string>
+    <string name="bubble_off">ভাসমান বাবল: চালু নেই — বোতাম চেপে অনুমতি দিন</string>
+    <string name="bubble_prompt">অন্য অ্যাপের উপরে দেখানোর অনুমতি চালু করে ফিরে আসুন</string>
+    <string name="bubble_started">ভাসমান বাবল চালু হলো</string>
 </resources>

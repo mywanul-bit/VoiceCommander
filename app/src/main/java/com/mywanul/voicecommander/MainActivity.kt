@@ -31,15 +31,19 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private lateinit var btnMic: ImageButton
+    private lateinit var btnLive: Button
+    private lateinit var btnBubble: Button
     private lateinit var txtStatus: TextView
     private lateinit var txtTaskStatus: TextView
     private lateinit var txtLastCommand: TextView
     private lateinit var txtLog: TextView
     private lateinit var txtA11yStatus: TextView
+    private lateinit var txtBubbleStatus: TextView
     private lateinit var etApiKey: EditText
     private lateinit var txtApiKeyStatus: TextView
 
     private var listening = false
+    private var liveMode = false
     private var logStarted = false
 
     private val logReceiver = object : BroadcastReceiver() {
@@ -65,15 +69,20 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         btnMic = findViewById(R.id.btnMic)
+        btnLive = findViewById(R.id.btnLive)
+        btnBubble = findViewById(R.id.btnBubble)
         txtStatus = findViewById(R.id.txtStatus)
         txtTaskStatus = findViewById(R.id.txtTaskStatus)
         txtLastCommand = findViewById(R.id.txtLastCommand)
         txtLog = findViewById(R.id.txtLog)
         txtA11yStatus = findViewById(R.id.txtA11yStatus)
+        txtBubbleStatus = findViewById(R.id.txtBubbleStatus)
         etApiKey = findViewById(R.id.etApiKey)
         txtApiKeyStatus = findViewById(R.id.txtApiKeyStatus)
 
         btnMic.setOnClickListener { toggleListening() }
+        btnLive.setOnClickListener { toggleLive() }
+        btnBubble.setOnClickListener { requestOverlayOrStartBubble() }
         findViewById<Button>(R.id.btnPermissions).setOnClickListener { requestPermissions() }
         findViewById<Button>(R.id.btnExactAlarm).setOnClickListener {
             requestExactAlarmPermission()
@@ -92,6 +101,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateA11yStatus()
+        updateBubbleStatus()
         updateExactAlarmStatus()
         updateApiKeyStatus()
         updateTaskStatus()
@@ -100,6 +110,8 @@ class MainActivity : AppCompatActivity() {
             listening = running
             updateMicUi()
         }
+        liveMode = running && VoiceCommandService.liveMode
+        updateLiveUi()
     }
 
     override fun onDestroy() {
@@ -112,6 +124,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun toggleListening() {
         if (listening) {
+            VoiceCommandService.liveMode = false
+            liveMode = false
+            updateLiveUi()
             stopService(Intent(this, VoiceCommandService::class.java))
             listening = false
             updateMicUi()
@@ -124,6 +139,9 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.perm_needed, Toast.LENGTH_LONG).show()
             return
         }
+        VoiceCommandService.liveMode = false
+        liveMode = false
+        updateLiveUi()
         val intent = Intent(this, VoiceCommandService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -133,6 +151,88 @@ class MainActivity : AppCompatActivity() {
         listening = true
         updateMicUi()
         Toast.makeText(this, R.string.mic_on_toast, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Live mode: listening keeps re-arming after silent rounds too,
+     * until the idle bound stops it (see VoiceCommandService).
+     * Tapping again — or the mic button — turns it off.
+     */
+    private fun toggleLive() {
+        if (liveMode) {
+            VoiceCommandService.liveMode = false
+            liveMode = false
+            updateLiveUi()
+            stopService(Intent(this, VoiceCommandService::class.java))
+            listening = false
+            updateMicUi()
+            txtStatus.setText(R.string.status_stopped)
+            Toast.makeText(this, R.string.live_stopped, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!hasMicPermission()) {
+            requestPermissions()
+            Toast.makeText(this, R.string.perm_needed, Toast.LENGTH_LONG).show()
+            return
+        }
+        VoiceCommandService.liveMode = true
+        liveMode = true
+        updateLiveUi()
+        if (!VoiceCommandService.isRunning) {
+            val intent = Intent(this, VoiceCommandService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            listening = true
+            updateMicUi()
+        }
+        Toast.makeText(this, R.string.live_started, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Floating bubble: needs the special "Display over other apps"
+     * permission, granted only in Settings. The result code is
+     * unreliable, so the status is re-checked in onResume().
+     */
+    private fun requestOverlayOrStartBubble() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            !Settings.canDrawOverlays(this)
+        ) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            Toast.makeText(this, R.string.bubble_prompt, Toast.LENGTH_LONG).show()
+            return
+        }
+        startBubbleService()
+    }
+
+    private fun startBubbleService() {
+        val intent = Intent(this, FloatingBubbleService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        updateBubbleStatus()
+        Toast.makeText(this, R.string.bubble_started, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateBubbleStatus() {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            Settings.canDrawOverlays(this)
+        txtBubbleStatus.setText(
+            if (granted) R.string.bubble_on else R.string.bubble_off
+        )
+    }
+
+    private fun updateLiveUi() {
+        btnLive.setText(if (liveMode) R.string.live_on else R.string.live_off)
     }
 
     private fun hasMicPermission(): Boolean =
