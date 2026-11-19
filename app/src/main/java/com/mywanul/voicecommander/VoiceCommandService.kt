@@ -229,6 +229,8 @@ class VoiceCommandService : Service() {
         } catch (_: Exception) {
         }
         listening = false
+        // v1.4 — back to the calm blue idle wave.
+        BubbleState.set(BubbleWaveView.Mode.IDLE)
     }
 
     private fun createRecognizer(): SpeechRecognizer? {
@@ -334,6 +336,8 @@ class VoiceCommandService : Service() {
             sessionTurn = turn
             recognizer?.startListening(intent)
             startFailureStreak = 0
+            // v1.4 — the bubble turns green and waves while listening.
+            BubbleState.set(BubbleWaveView.Mode.LISTENING)
             handler.postDelayed(watchdogRunnable, WATCHDOG_TIMEOUT_MS)
         } catch (e: Exception) {
             listening = false
@@ -377,6 +381,7 @@ class VoiceCommandService : Service() {
         override fun onBeginningOfSpeech() {
             // Speech is arriving — the current language is accepted.
             unknownErrorStreak = 0
+            BubbleState.set(BubbleWaveView.Mode.LISTENING)
         }
 
         override fun onRmsChanged(rmsdB: Float) {}
@@ -555,6 +560,9 @@ class VoiceCommandService : Service() {
     }
 
     private fun handleCommand(heard: String) {
+        // v1.4 — purple while the command (or the AI answer) is
+        // being worked out; TtsHelper turns it orange while speaking.
+        BubbleState.set(BubbleWaveView.Mode.PROCESSING)
         val command = CommandParser.parse(heard)
         if (command is VoiceCommand.StopListening) {
             if (ContinuousTaskManager.isRunning()) {

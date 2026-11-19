@@ -17,12 +17,10 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 
 /**
@@ -30,6 +28,10 @@ import androidx.core.app.NotificationCompat
  * উপরে ভেসে থাকে। টেনে সরানো যায়, কিনারায় ছেড়ে দিলে কাছের কিনারায়
  * গিয়ে আটকে যায়। ট্যাপ করলে ভয়েস শোনা শুরু হয়, ৪০০ মিলিসেকেন্ড
  * চেপে ধরলে লাইভ শোনা শুরু হয়।
+ *
+ * v1.4 — বাবলটা আর স্থির ছবি নয়, [BubbleWaveView]: চারপাশে ঢেউয়ের
+ * মতো বৃত্ত ছড়িয়ে পড়ে, আর অবস্থা অনুযায়ী রঙ বদলায় — নীল (অপেক্ষা),
+ * সবুজ (শুনছে), কমলা (বলছে), বেগুনি (ভাবছে)।
  *
  * বাবল নিজে অন্য অ্যাপে ক্লিক করে না — ক্লিক/স্ক্রল/টাইপ করে
  * [CommanderAccessibilityService] (লেখা বা content-description দিয়ে
@@ -57,9 +59,16 @@ class FloatingBubbleService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var prefs: SharedPreferences
-    private var bubbleView: ImageView? = null
+    private var bubbleView: BubbleWaveView? = null
     private var params: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
+
+    // v1.4 — the bubble shows what the assistant is doing (listening /
+    // speaking / thinking) as colour + wave speed. The listening service
+    // and the speech helper report into BubbleState; this just watches.
+    private val bubbleStateListener: (BubbleWaveView.Mode) -> Unit = { mode ->
+        bubbleView?.mode = mode
+    }
 
     private var initialX = 0
     private var initialY = 0
@@ -77,7 +86,9 @@ class FloatingBubbleService : Service() {
             bubbleView?.performHapticFeedback(
                 android.view.HapticFeedbackConstants.LONG_PRESS
             )
-            bubbleView?.setBackgroundResource(R.drawable.circle_button_active)
+            // Immediate feedback — the listening service keeps the
+            // state in sync from here on (IDLE again when it stops).
+            BubbleState.set(BubbleWaveView.Mode.LISTENING)
             startListening(live = true)
         }
     }
@@ -96,6 +107,7 @@ class FloatingBubbleService : Service() {
             startForeground(NOTIFICATION_ID, buildNotification())
         }
         isRunning = true
+        BubbleState.addListener(bubbleStateListener)
         showBubble()
     }
 
@@ -109,6 +121,8 @@ class FloatingBubbleService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(longPressRunnable)
+        BubbleState.removeListener(bubbleStateListener)
+        BubbleState.set(BubbleWaveView.Mode.IDLE)
         removeBubble()
         isRunning = false
         super.onDestroy()
@@ -146,17 +160,18 @@ class FloatingBubbleService : Service() {
             stopSelf()
             return
         }
-        val view = LayoutInflater.from(this)
-            .inflate(R.layout.layout_floating_bubble, null) as ImageView
+        val view = BubbleWaveView(this)
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getMetrics(metrics)
-        val size = dpToPx(64)
+        // v1.4 — 96dp: the wave view measures itself to this size
+        // (core + ripple rings), so the layout is exactly this big.
+        val size = dpToPx(96)
         val startX = prefs.getInt(KEY_X, metrics.widthPixels - size - dpToPx(8))
         val startY = prefs.getInt(KEY_Y, metrics.heightPixels / 3)
         val layoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            size,
+            size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -212,7 +227,8 @@ class FloatingBubbleService : Service() {
                             .putInt(KEY_Y, layoutParams.y)
                             .apply()
                     } else if (longPressFired) {
-                        view.setBackgroundResource(R.drawable.circle_button)
+                        // Long-press already started live listening;
+                        // the wave state follows the listening service.
                     } else {
                         startListening(live = false)
                     }
@@ -224,7 +240,6 @@ class FloatingBubbleService : Service() {
                     handler.removeCallbacks(longPressRunnable)
                     dragging = false
                     longPressFired = false
-                    view.setBackgroundResource(R.drawable.circle_button)
                     true
                 }
                 else -> false

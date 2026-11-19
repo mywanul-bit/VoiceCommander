@@ -76,15 +76,30 @@ object TtsHelper {
                 tts?.setPitch(PITCH)
                 tts?.setOnUtteranceProgressListener(
                     object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) {}
+                        // v1.4 — the bubble turns orange while the
+                        // assistant talks, calm blue again when done.
+                        override fun onStart(utteranceId: String?) {
+                            BubbleState.set(BubbleWaveView.Mode.SPEAKING)
+                        }
+
                         override fun onDone(utteranceId: String?) {
-                            activeUtterances.updateAndGet { maxOf(0, it - 1) }
+                            val remaining = activeUtterances.updateAndGet {
+                                maxOf(0, it - 1)
+                            }
+                            if (remaining == 0) {
+                                BubbleState.set(BubbleWaveView.Mode.IDLE)
+                            }
                         }
 
                         @Deprecated("Deprecated in Java")
                         @Suppress("DEPRECATION")
                         override fun onError(utteranceId: String?) {
-                            activeUtterances.updateAndGet { maxOf(0, it - 1) }
+                            val remaining = activeUtterances.updateAndGet {
+                                maxOf(0, it - 1)
+                            }
+                            if (remaining == 0) {
+                                BubbleState.set(BubbleWaveView.Mode.IDLE)
+                            }
                         }
                     }
                 )
@@ -129,6 +144,7 @@ object TtsHelper {
     fun stop(context: Context) {
         pending.clear()
         activeUtterances.set(0)
+        BubbleState.set(BubbleWaveView.Mode.IDLE)
         try {
             tts?.stop()
         } catch (_: Exception) {
