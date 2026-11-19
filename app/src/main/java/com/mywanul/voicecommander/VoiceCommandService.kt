@@ -38,6 +38,13 @@ import androidx.core.app.NotificationCompat
  * the loop re-arms it (see [scheduleRestart]). A watchdog stops the
  * loop after [MAX_SILENT_ROUNDS] silent rounds with no speech, so a
  * forgotten live session does not listen forever.
+ *
+ * Talking assistant (v1.3): every command result is spoken aloud
+ * (loud, clear voice via TtsHelper), and unknown speech that is not
+ * a command is answered conversationally by Gemini. While the
+ * assistant is speaking — or its answer is still being computed —
+ * the restart loop waits instead of re-arming, so the recognizer
+ * never hears the app's own voice.
  */
 class VoiceCommandService : Service() {
 
@@ -122,9 +129,24 @@ class VoiceCommandService : Service() {
     private var languageIndex = 0
     private var unknownErrorStreak = 0
     private var startFailureStreak = 0
+    // v1.3 — a command result is still being computed. While true the
+    // restart loop waits instead of re-arming, so the recognizer
+    // never starts while the assistant is about to speak.
+    @Volatile
+    private var commandInFlight = false
 
     private val rearmRunnable = Runnable {
-        if (wantListening && isRunning) startListening()
+        if (!wantListening || !isRunning) return@Runnable
+        if (commandInFlight || TtsHelper.isSpeaking()) {
+            // v1.3 — the assistant is still answering (or its answer
+            // is still being computed). Re-arming now would make the
+            // recognizer hear its own voice, so wait and check again
+            // shortly. No time limit: a long read-aloud must not be
+            // cut off by a forced re-arm either.
+            handler.postDelayed(rearmRunnable, 400)
+            return@Runnable
+        }
+        startListening()
     }
 
     private val watchdogRunnable = Runnable {
@@ -533,8 +555,11 @@ class VoiceCommandService : Service() {
                 // going so the user can give the next command. The
                 // executor's StopListening case stops the task (and
                 // the speech) and reports it in the log.
-                executor.execute(command) { result ->
+                commandInFlight = true
+                executor.execute(command) { result, speak ->
+                    commandInFlight = false
                     log(this, KIND_RESULT, result)
+                    if (speak) TtsHelper.speak(this, result)
                 }
                 scheduleRestart(300)
                 return
@@ -542,12 +567,19 @@ class VoiceCommandService : Service() {
             ContinuousTaskManager.stop()
             TtsHelper.stop(this)
             log(this, KIND_RESULT, "শোনা বন্ধ করছি")
+            TtsHelper.speak(this, "শোনা বন্ধ করছি")
             stopListening()
             stopSelf()
             return
         }
-        executor.execute(command) { result ->
+        commandInFlight = true
+        executor.execute(command) { result, speak ->
+            commandInFlight = false
             log(this, KIND_RESULT, result)
+            // v1.3 — the assistant talks back: every command result
+            // is spoken aloud, unless the executor already spoke the
+            // content itself (speak = false).
+            if (speak) TtsHelper.speak(this, result)
         }
     }
 

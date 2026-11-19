@@ -18,6 +18,8 @@ import java.net.URL
  *  - translate — translate screen text to simple Bengali, page by page
  *  - smart-command fallback — map an unknown spoken phrase to a known
  *    command (only when a key is saved)
+ *  - chat (v1.3) — answer free speech conversationally, like a
+ *    personal assistant, when it is not a command at all
  */
 object AIHelper {
 
@@ -120,6 +122,21 @@ object AIHelper {
             "রাখো, কঠিন শব্দ ব্যবহার করো না, আর অতিরিক্ত ব্যাখ্যা দিও না — " +
             "শুধু অনুবাদটুকু দাও।\n\n" +
             "লেখা:\n${text.take(6000)}"
+        return ask(context, prompt)
+    }
+
+    /**
+     * Conversational answer (v1.3): the user is talking to a personal
+     * assistant, not giving a command — "কেমন আছো", "আজকের দিন কেমন",
+     * a question, a greeting. Short, friendly, colloquial Bengali —
+     * 2-3 sentences at most, no markdown, no lists.
+     */
+    fun chat(context: Context, spoken: String): AiResult {
+        val prompt = "তুমি একজন বন্ধুসুলভ ব্যক্তিগত সহকারী — ব্যবহারকারী " +
+            "তোমার সাথে কথা বলছে, কমান্ড দিচ্ছে না। সহজ চলিত বাংলায়, " +
+            "সংক্ষেপে উত্তর দাও — সর্বোচ্চ ২-৩ বাক্য। মার্কডাউন, তালিকা " +
+            "বা দীর্ঘ ব্যাখ্যা দিও না।\n\n" +
+            "ব্যবহারকারী: \"$spoken\""
         return ask(context, prompt)
     }
 

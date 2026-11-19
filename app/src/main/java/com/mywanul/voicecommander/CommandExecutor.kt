@@ -34,18 +34,43 @@ class CommandExecutor(context: Context) {
             "Accessibility সেবা চালু নেই — অ্যাপ থেকে সেটিংসে গিয়ে ভয়েস কমান্ডার চালু করুন"
     }
 
-    fun execute(command: VoiceCommand, onResult: (String) -> Unit) {
+    /**
+     * Runs a command on a background thread. [onResult] gets every
+     * result line; [speak] is true only for the final result that the
+     * assistant should read aloud (v1.3). Progress lines of continuous
+     * tasks (speak = false) are only shown in the log, and results
+     * whose content the executor already spoke are not spoken twice.
+     */
+    fun execute(command: VoiceCommand, onResult: (String, Boolean) -> Unit) {
         worker.execute {
             // Continuous tasks report progress through this same
             // callback, so every progress line lands in the app log.
-            val log: (String) -> Unit = { msg -> mainHandler.post { onResult(msg) } }
+            val log: (String) -> Unit = { msg -> mainHandler.post { onResult(msg, false) } }
             val result = try {
                 run(command, log)
             } catch (e: Exception) {
                 "ভুল হয়েছে: ${e.message ?: e.toString()}"
             }
-            mainHandler.post { onResult(result) }
+            mainHandler.post { onResult(result, shouldSpeakResult(command)) }
         }
+    }
+
+    /**
+     * v1.3 — which final results should the assistant read aloud?
+     * False when the executor already spoke the content itself, so
+     * the user never hears the same thing twice: read-aloud
+     * (clipboard / page), explain, one-page translation and task
+     * status all speak their content, and a drafted comment is long
+     * text the user can see on screen.
+     */
+    private fun shouldSpeakResult(command: VoiceCommand): Boolean = when (command) {
+        VoiceCommand.ReadClipboardText,
+        VoiceCommand.ReadPage,
+        VoiceCommand.Explain,
+        VoiceCommand.TranslatePageOnce,
+        VoiceCommand.TaskStatus,
+        VoiceCommand.DraftComment -> false
+        else -> true
     }
 
     private fun a11y(): CommanderAccessibilityService? =
@@ -253,17 +278,21 @@ class CommandExecutor(context: Context) {
      * Smart-command fallback: when the local parser matches nothing and
      * a Gemini key is saved, Gemini maps the spoken phrase to a known
      * command and it is run (one level only — smartMap never returns
-     * Unknown, so there is no loop). Without a key, the old
-     * "বুঝতে পারিনি" behaviour is kept.
+     * Unknown, so there is no loop). If it is not a command at all,
+     * Gemini answers it conversationally (v1.3 — the assistant talks
+     * back, and the service speaks the answer). Without a key, the
+     * user is told where to put one, so the spoken reply explains it.
      */
     private fun smartFallback(raw: String, onLog: (String) -> Unit): String {
         if (!AIHelper.hasApiKey(appContext)) {
-            return "বুঝতে পারিনি: “$raw”"
+            return AIHelper.NO_KEY
         }
         val mapped = AIHelper.smartMap(appContext, raw)
-            ?: return "বুঝতে পারিনি: “$raw”"
-        if (mapped is VoiceCommand.Unknown) return "বুঝতে পারিনি: “$raw”"
-        return run(mapped, onLog)
+        if (mapped != null && mapped !is VoiceCommand.Unknown) {
+            return run(mapped, onLog)
+        }
+        // Not a command — answer it like a personal assistant.
+        return AIHelper.chat(appContext, raw).text
     }
 
     // ---------- continuous tasks: "করতে থাকো" / "X পৃষ্ঠা পর্যন্ত অনুবাদ করো" ----------

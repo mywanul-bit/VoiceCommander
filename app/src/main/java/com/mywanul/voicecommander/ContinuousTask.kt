@@ -299,7 +299,7 @@ object ContinuousTaskManager {
             var result: String? = null
             var threw = false
             try {
-                executor.execute(command) { r ->
+                executor.execute(command) { r, _ ->
                     result = r
                     latch.countDown()
                 }
