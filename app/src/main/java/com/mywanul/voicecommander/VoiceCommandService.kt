@@ -135,7 +135,7 @@ class VoiceCommandService : Service() {
     @Volatile
     private var commandInFlight = false
 
-    private val rearmRunnable = Runnable {
+    private val rearmRunnable: Runnable = Runnable {
         if (!wantListening || !isRunning) return@Runnable
         if (commandInFlight || TtsHelper.isSpeaking()) {
             // v1.3 — the assistant is still answering (or its answer
@@ -143,6 +143,10 @@ class VoiceCommandService : Service() {
             // recognizer hear its own voice, so wait and check again
             // shortly. No time limit: a long read-aloud must not be
             // cut off by a forced re-arm either.
+            // NOTE: the explicit ": Runnable" type is required — without
+            // it the compiler cannot infer the type of this property
+            // because the lambda refers to the property itself
+            // (Kotlin: "Type checking has run into a recursive problem").
             handler.postDelayed(rearmRunnable, 400)
             return@Runnable
         }
