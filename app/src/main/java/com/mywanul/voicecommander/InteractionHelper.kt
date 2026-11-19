@@ -3,8 +3,13 @@ package com.mywanul.voicecommander
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.media.AudioManager
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Screen interaction helpers: browsing, copy/paste, comments on posts,
@@ -17,13 +22,37 @@ import java.util.Locale
 // Text-to-speech (Bengali, bn-BD)
 // ---------------------------------------------------------------------------
 
+/**
+ * Text-to-speech (Bengali, bn-BD) — v1.3: the assistant TALKS BACK.
+ *
+ * Loud and clear on purpose: speech goes out on STREAM_MUSIC at
+ * full utterance volume, a little slower than normal (0.9x reads
+ * more clearly), and if the media volume is below 80% of the
+ * maximum it is raised to 80% before speaking. [isSpeaking] is
+ * true from the moment [speak] is called until the last queued
+ * utterance finishes, so the listening loop can wait instead of
+ * re-arming the microphone while its own voice is playing.
+ */
 object TtsHelper {
+
+    private const val TAG = "TtsHelper"
+    // The user's voice should be a bit loud: if the media volume is
+    // below this share of the maximum, raise it to this level.
+    private const val MIN_VOLUME_FRACTION = 0.8f
+    // A little slower than normal reads more clearly in Bengali.
+    private const val SPEECH_RATE = 0.9f
+    private const val PITCH = 1.0f
 
     private var tts: TextToSpeech? = null
     private var ready = false
     private var initStarted = false
     private val pending = ArrayDeque<String>()
     private var utteranceCounter = 0
+    // Utterances handed to the engine but not yet finished
+    // (onDone / onError). Counted here — not only via
+    // tts.isSpeaking — so the app knows it is talking from the
+    // moment speak() is called, even before sound comes out.
+    private val activeUtterances = AtomicInteger(0)
 
     private fun ensure(context: Context) {
         if (initStarted) return
@@ -38,8 +67,27 @@ object TtsHelper {
                 ) {
                     // No Bengali voice data on the phone — fall back to
                     // the system language instead of staying silent.
+                    // (Bengali TTS depends on the phone's TTS engine,
+                    // usually Google TTS — its Bengali voice data must
+                    // be installed for a Bengali voice.)
                     tts?.language = Locale.getDefault()
                 }
+                tts?.setSpeechRate(SPEECH_RATE)
+                tts?.setPitch(PITCH)
+                tts?.setOnUtteranceProgressListener(
+                    object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {}
+                        override fun onDone(utteranceId: String?) {
+                            activeUtterances.updateAndGet { maxOf(0, it - 1) }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        @Suppress("DEPRECATION")
+                        override fun onError(utteranceId: String?) {
+                            activeUtterances.updateAndGet { maxOf(0, it - 1) }
+                        }
+                    }
+                )
                 drain()
             }
         }
@@ -50,21 +98,53 @@ object TtsHelper {
         ensure(context)
         val clean = text.trim()
         if (clean.isEmpty()) return
+        boostVolume(context)
         chunk(clean).forEach { pending.addLast(it) }
         if (ready) drain()
+    }
+
+    /**
+     * The voice must be loud: if the media (STREAM_MUSIC) volume is
+     * below 80% of the maximum, raise it to 80%. Logged so the user
+     * can see the phone was turned up on purpose.
+     */
+    private fun boostVolume(context: Context) {
+        try {
+            val audio = context.getSystemService(Context.AUDIO_SERVICE)
+                as? AudioManager ?: return
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (max <= 0) return
+            val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val target = (max * MIN_VOLUME_FRACTION).toInt().coerceAtLeast(1)
+            if (current < target) {
+                audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                Log.d(TAG, "মিডিয়া ভলিউম $current থেকে $target-এ বাড়ানো হলো (সর্বোচ্চ $max)")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "ভলিউম বাড়ানো যায়নি: ${e.message}")
+        }
     }
 
     /** Stops any ongoing speech and clears the queue. */
     fun stop(context: Context) {
         pending.clear()
+        activeUtterances.set(0)
         try {
             tts?.stop()
         } catch (_: Exception) {
         }
     }
 
+    /**
+     * True while the assistant is talking — from the moment speak()
+     * is called until the last queued utterance finishes. The live
+     * listening loop uses this so it never re-arms the microphone
+     * while its own voice is playing.
+     */
     fun isSpeaking(): Boolean = try {
-        tts?.isSpeaking == true
+        activeUtterances.get() > 0 ||
+            pending.isNotEmpty() ||
+            tts?.isSpeaking == true
     } catch (_: Exception) {
         false
     }
@@ -74,9 +154,19 @@ object TtsHelper {
         while (pending.isNotEmpty()) {
             val piece = pending.removeFirst()
             utteranceCounter++
-            engine.speak(
-                piece, TextToSpeech.QUEUE_ADD, null, "vc-$utteranceCounter"
+            // Full utterance volume on the music stream, so the
+            // answer is loud and clear.
+            val params = Bundle().apply {
+                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                putInt(
+                    TextToSpeech.Engine.KEY_PARAM_STREAM,
+                    AudioManager.STREAM_MUSIC
+                )
+            }
+            val res = engine.speak(
+                piece, TextToSpeech.QUEUE_ADD, params, "vc-$utteranceCounter"
             )
+            if (res == TextToSpeech.SUCCESS) activeUtterances.incrementAndGet()
         }
     }
 
