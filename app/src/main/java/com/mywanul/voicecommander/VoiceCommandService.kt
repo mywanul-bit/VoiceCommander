@@ -135,6 +135,17 @@ class VoiceCommandService : Service() {
     @Volatile
     private var commandInFlight = false
 
+    // v1.5 — the user spoke (a partial hypothesis arrived) but the
+    // turn ended with NO_MATCH / SPEECH_TIMEOUT, so nothing was ever
+    // answered: the screen showed their words, the assistant stayed
+    // silent. Remember the partial so onError can answer once.
+    private var partialSeenThisTurn = false
+    private var lastNoMatchSpokenMs = 0L
+    // v1.5 — a TTS queue that never starts (engine missing/broken)
+    // used to make isSpeaking() true forever and deafen the app.
+    // Whether the stuck warning was already shown for this episode.
+    private var speechStuckNotified = false
+
     // v1.3 — NOTE: this must be a lateinit var initialised in onCreate(),
     // NOT a val with an inline initializer. The runnable refers to itself
     // (it re-posts itself while the assistant is speaking), and a val
@@ -173,6 +184,19 @@ class VoiceCommandService : Service() {
         // No time limit: a long read-aloud must not be cut off.
         rearmRunnable = Runnable {
             if (!wantListening || !isRunning) return@Runnable
+            // v1.5 — a TTS queue that never starts (engine missing or
+            // broken) kept isSpeaking() true forever, so the loop
+            // waited forever and the app went deaf. Drop the stuck
+            // queue and keep listening; the warning is shown once.
+            if (TtsHelper.isSpeechStuck()) {
+                TtsHelper.stop(this)
+                if (!speechStuckNotified) {
+                    speechStuckNotified = true
+                    log(this, KIND_STATUS, "কথা বলার সেবা চালু হয়নি — শুধু শুনছি")
+                }
+            } else {
+                speechStuckNotified = false
+            }
             if (commandInFlight || TtsHelper.isSpeaking()) {
                 handler.postDelayed(rearmRunnable, 400)
                 return@Runnable
@@ -334,6 +358,7 @@ class VoiceCommandService : Service() {
             listening = true
             turn++
             sessionTurn = turn
+            partialSeenThisTurn = false
             recognizer?.startListening(intent)
             startFailureStreak = 0
             // v1.4 — the bubble turns green and waves while listening.
@@ -402,9 +427,28 @@ class VoiceCommandService : Service() {
             when (error) {
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
                 SpeechRecognizer.ERROR_NO_MATCH -> {
-                    // Silence / no hypothesis. Silent re-arm, only
-                    // while a continuous session is active — never
-                    // show these as errors to the user.
+                    // v1.5 — the user DID speak (a partial hypothesis
+                    // arrived) but no final result came: the old code
+                    // re-armed silently, so the screen showed their
+                    // words and the assistant never answered. Answer
+                    // once, out loud, throttled to one per 10 s so a
+                    // noisy room cannot make it chatter. Pure-silence
+                    // rounds (no partial) stay silent as before.
+                    if (partialSeenThisTurn) {
+                        partialSeenThisTurn = false
+                        val now = System.currentTimeMillis()
+                        if (now - lastNoMatchSpokenMs > 10_000) {
+                            lastNoMatchSpokenMs = now
+                            log(
+                                applicationContext, KIND_ERROR,
+                                "শুনতে পাইনি — আবার বলুন"
+                            )
+                            TtsHelper.speak(
+                                applicationContext,
+                                "দুঃখিত, ঠিকমতো শুনতে পাইনি — আবার বলুন"
+                            )
+                        }
+                    }
                     silentStreak++
                     if (silentStreak <= maxSilentRounds()) {
                         scheduleRestart(200)
@@ -528,6 +572,7 @@ class VoiceCommandService : Service() {
             if (!wantListening || turn != sessionTurn) return
             silentStreak = 0
             networkStreak = 0
+            partialSeenThisTurn = false
             busyRecreated = false
             unknownErrorStreak = 0
             startFailureStreak = 0
@@ -552,6 +597,7 @@ class VoiceCommandService : Service() {
             if (partial.isNotEmpty()) {
                 // Speech is arriving — this round is not silent.
                 silentStreak = 0
+                partialSeenThisTurn = true
                 log(applicationContext, KIND_PARTIAL, partial)
             }
         }

@@ -343,18 +343,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateA11yStatus() {
         txtA11yStatus.setText(
-            if (isA11yEnabled()) R.string.a11y_on else R.string.a11y_off
+            when {
+                isA11yConnected() -> R.string.a11y_on
+                isA11yEnabled() -> R.string.a11y_on_not_connected
+                else -> R.string.a11y_off
+            }
         )
     }
 
+    /**
+     * v1.5 — the old check (system list filtered by FEEDBACK_GENERIC
+     * only) said OFF on the user's phone even though the switch was
+     * ON in Settings. Now: the live service instance proves it is
+     * actually connected, and the system list is read without any
+     * feedback-type filter. Either one saying ON is enough.
+     */
     private fun isA11yEnabled(): Boolean {
+        if (CommanderAccessibilityService.instance != null) return true
         val am = getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         val services = am.getEnabledAccessibilityServiceList(
-            AccessibilityServiceInfo.FEEDBACK_GENERIC
+            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
         )
         val myId = "$packageName/${CommanderAccessibilityService::class.java.name}"
         return services.any { it.id == myId }
     }
+
+    /** The service is enabled AND actually connected (can click/type). */
+    private fun isA11yConnected(): Boolean =
+        CommanderAccessibilityService.instance != null
 
     private fun appendLog(line: String) {
         if (!logStarted) {

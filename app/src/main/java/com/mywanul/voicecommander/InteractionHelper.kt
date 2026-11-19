@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.media.AudioManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -46,7 +47,17 @@ object TtsHelper {
     private var tts: TextToSpeech? = null
     private var ready = false
     private var initStarted = false
+    // v1.5 — the TTS engine failed to start at all (missing or
+    // disabled engine): without this flag the queued speech sat in
+    // pending forever, isSpeaking() stayed true forever, and the
+    // listening loop waited forever — the app went deaf after the
+    // first answer. When init fails the queue is dropped instead.
+    private var initFailed = false
     private val pending = ArrayDeque<String>()
+    // v1.5 — when the queue was filled but never started (engine
+    // not ready yet): the moment it was filled, so isSpeechStuck()
+    // can tell a stuck queue from one simply waiting its turn.
+    private var pendingSinceMs = 0L
     private var utteranceCounter = 0
     // Utterances handed to the engine but not yet finished
     // (onDone / onError). Counted here — not only via
@@ -59,6 +70,15 @@ object TtsHelper {
         initStarted = true
         tts = TextToSpeech(context.applicationContext) { status ->
             ready = status == TextToSpeech.SUCCESS
+            if (!ready) {
+                // Engine broken or missing — drop anything queued so
+                // the listening loop is never blocked on speech that
+                // can never play.
+                initFailed = true
+                pending.clear()
+                activeUtterances.set(0)
+                Log.d(TAG, "TTS চালু হয়নি (status=$status) — কণ্ঠ বন্ধ থাকবে")
+            }
             if (ready) {
                 val bn = Locale("bn", "BD")
                 val res = tts?.setLanguage(bn)
@@ -111,9 +131,11 @@ object TtsHelper {
     /** Speaks [text] aloud (long text is split into chunks). */
     fun speak(context: Context, text: String) {
         ensure(context)
+        if (initFailed) return
         val clean = text.trim()
         if (clean.isEmpty()) return
         boostVolume(context)
+        if (pending.isEmpty()) pendingSinceMs = SystemClock.uptimeMillis()
         chunk(clean).forEach { pending.addLast(it) }
         if (ready) drain()
     }
@@ -143,6 +165,7 @@ object TtsHelper {
     /** Stops any ongoing speech and clears the queue. */
     fun stop(context: Context) {
         pending.clear()
+        pendingSinceMs = 0L
         activeUtterances.set(0)
         BubbleState.set(BubbleWaveView.Mode.IDLE)
         try {
@@ -165,8 +188,25 @@ object TtsHelper {
         false
     }
 
+    /**
+     * v1.5 — true when speech was queued more than 15 s ago but
+     * nothing is actually playing (the engine never became ready).
+     * A long read-aloud is NOT stuck: while it plays,
+     * activeUtterances > 0 or tts.isSpeaking is true.
+     */
+    fun isSpeechStuck(): Boolean = try {
+        pending.isNotEmpty() &&
+            activeUtterances.get() == 0 &&
+            tts?.isSpeaking != true &&
+            pendingSinceMs != 0L &&
+            SystemClock.uptimeMillis() - pendingSinceMs > 15_000
+    } catch (_: Exception) {
+        false
+    }
+
     private fun drain() {
         val engine = tts ?: return
+        pendingSinceMs = 0L
         while (pending.isNotEmpty()) {
             val piece = pending.removeFirst()
             utteranceCounter++
