@@ -18,10 +18,19 @@ import android.speech.SpeechRecognizer
 import androidx.core.app.NotificationCompat
 
 /**
- * Foreground service that listens continuously in Bengali (bn-BD).
+ * Foreground service that listens continuously, starting in Bengali.
  * After every result or error it starts listening again, so the user
  * never has to press the mic button twice. Heard commands are sent to
  * [CommandExecutor]; status goes to MainActivity as broadcasts.
+ *
+ * Language fallback (v1.2): the phone's recognizer may not support
+ * Bengali at all — on such phones a hardcoded "bn-BD" fails with
+ * ERROR_LANGUAGE_NOT_SUPPORTED (12) forever. So listening walks a
+ * chain — bn-BD -> bn-IN -> en-IN -> en-US — advancing one step per
+ * language error, and remembers the first language that actually
+ * hears something (SharedPreferences) so the next start goes
+ * straight to it. If no language in the chain works, listening
+ * stops with a clear message instead of looping.
  *
  * Live mode ([liveMode]): the restart loop keeps re-arming after
  * silent rounds too. It is NOT truly infinite — one SpeechRecognizer
@@ -70,6 +79,15 @@ class VoiceCommandService : Service() {
         // Network failures back off instead of tight-looping.
         private const val NETWORK_BACKOFF_MS = 5_000L
         private const val MAX_NETWORK_STREAK = 3
+        // v1.2 — language fallback chain. bn-BD first (the user's
+        // language), then bn-IN, then English. The device default is
+        // deliberately NOT used as a fallback: on a Bengali phone it
+        // usually equals bn-BD, i.e. the language that just failed.
+        private val LANGUAGE_CHAIN = listOf("bn-BD", "bn-IN", "en-IN", "en-US")
+        private const val PREFS_NAME = "voice_commander"
+        private const val PREF_WORKING_LANGUAGE = "working_language"
+        // Unknown errors stop the loop after this many in a row.
+        private const val MAX_UNKNOWN_ERROR_STREAK = 3
 
         fun log(context: Context, kind: String, text: String) {
             val intent = Intent(ACTION_LOG).apply {
@@ -98,6 +116,12 @@ class VoiceCommandService : Service() {
     private var silentStreak = 0
     private var networkStreak = 0
     private var busyRecreated = false
+    // v1.2 — language fallback state. languageIndex points into
+    // LANGUAGE_CHAIN; unknownErrorStreak bounds the generic
+    // onError else-branch so it can never loop forever.
+    private var languageIndex = 0
+    private var unknownErrorStreak = 0
+    private var startFailureStreak = 0
 
     private val rearmRunnable = Runnable {
         if (wantListening && isRunning) startListening()
@@ -126,6 +150,9 @@ class VoiceCommandService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("শুনছি…"))
         recognizer = createRecognizer()
+        // v1.2: start with the language that worked last time, if any
+        // was saved — otherwise bn-BD (index 0).
+        languageIndex = loadSavedLanguageIndex()
         wantListening = true
         isRunning = true
         startListening()
@@ -187,13 +214,62 @@ class VoiceCommandService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // ---- v1.2: language fallback helpers ----
+
+    private fun currentLanguage(): String =
+        LANGUAGE_CHAIN[languageIndex.coerceIn(LANGUAGE_CHAIN.indices)]
+
+    /** Saved working language, if one was ever found — else bn-BD. */
+    private fun loadSavedLanguageIndex(): Int {
+        val saved = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(PREF_WORKING_LANGUAGE, null) ?: return 0
+        val idx = LANGUAGE_CHAIN.indexOf(saved)
+        return if (idx >= 0) idx else 0
+    }
+
+    /** Remember the language that just heard a command. */
+    private fun saveWorkingLanguage() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(PREF_WORKING_LANGUAGE, currentLanguage()).apply()
+    }
+
+    /** No language in the chain worked — forget the saved one. */
+    private fun clearWorkingLanguage() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .remove(PREF_WORKING_LANGUAGE).apply()
+    }
+
+    private fun languageLabel(code: String): String = when (code) {
+        "bn-BD" -> "বাংলা (বাংলাদেশ)"
+        "bn-IN" -> "বাংলা (ভারত)"
+        "en-IN" -> "ইংরেজি (ভারত)"
+        "en-US" -> "ইংরেজি"
+        else -> code
+    }
+
     private fun startListening() {
         if (listening || !wantListening || !isRunning) return
+        // v1.2: no recognition service on this phone at all — say so
+        // once and stop. Retrying cannot create a recognizer.
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            log(this, KIND_ERROR, getString(R.string.voice_service_unavailable))
+            stopListening()
+            stopSelf()
+            return
+        }
         if (recognizer == null) {
             recognizer = createRecognizer()
             if (recognizer == null) {
-                log(this, KIND_ERROR, "শোনা শুরু হয়নি: recognizer নেই")
-                scheduleRestart(1000)
+                // Bounded: a missing recognizer will not fix itself.
+                startFailureStreak++
+                if (startFailureStreak >= MAX_UNKNOWN_ERROR_STREAK) {
+                    log(this, KIND_ERROR, getString(R.string.voice_service_unavailable))
+                    stopListening()
+                    stopSelf()
+                } else {
+                    log(this, KIND_ERROR, "শোনা শুরু হয়নি: recognizer নেই")
+                    scheduleRestart(1000)
+                }
                 return
             }
         }
@@ -202,9 +278,14 @@ class VoiceCommandService : Service() {
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, currentLanguage())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            // v1.2: NEVER force offline. Bengali recognition needs the
+            // online service on most phones; forcing offline is a known
+            // cause of ERROR_LANGUAGE_NOT_SUPPORTED (12) /
+            // ERROR_LANGUAGE_UNAVAILABLE (13) when the Bengali offline
+            // pack is missing from the phone.
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             // Best-effort only: many recognizers ignore these silence
             // lengths, so the restart loop below is what really keeps
@@ -223,11 +304,20 @@ class VoiceCommandService : Service() {
             turn++
             sessionTurn = turn
             recognizer?.startListening(intent)
+            startFailureStreak = 0
             handler.postDelayed(watchdogRunnable, WATCHDOG_TIMEOUT_MS)
         } catch (e: Exception) {
             listening = false
-            log(this, KIND_ERROR, "শোনা শুরু হয়নি: ${e.message}")
-            scheduleRestart(1000)
+            // Bounded like the recognizer-missing case above.
+            startFailureStreak++
+            if (startFailureStreak >= MAX_UNKNOWN_ERROR_STREAK) {
+                log(this, KIND_ERROR, getString(R.string.voice_service_unavailable))
+                stopListening()
+                stopSelf()
+            } else {
+                log(this, KIND_ERROR, "শোনা শুরু হয়নি: ${e.message}")
+                scheduleRestart(1000)
+            }
         }
     }
 
@@ -255,7 +345,10 @@ class VoiceCommandService : Service() {
             log(applicationContext, KIND_STATUS, "শুনছি… কমান্ড বলুন")
         }
 
-        override fun onBeginningOfSpeech() {}
+        override fun onBeginningOfSpeech() {
+            // Speech is arriving — the current language is accepted.
+            unknownErrorStreak = 0
+        }
 
         override fun onRmsChanged(rmsdB: Float) {}
 
@@ -330,9 +423,67 @@ class VoiceCommandService : Service() {
                     )
                     // No restart: this will not fix itself by retrying.
                 }
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
+                SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT -> {
+                    // v1.2: error 12/13/14 — the current language is not
+                    // usable with this phone's recognizer (this was the
+                    // "এরর 12" flood: bn-BD retried forever). Advance
+                    // ONE step in the chain and retry there. This is
+                    // not a silent round — silentStreak is untouched.
+                    unknownErrorStreak = 0
+                    if (languageIndex + 1 < LANGUAGE_CHAIN.size) {
+                        val failed = currentLanguage()
+                        languageIndex++
+                        val next = currentLanguage()
+                        val message = if (next.startsWith("en")) {
+                            getString(R.string.lang_not_supported_english)
+                        } else {
+                            getString(
+                                R.string.lang_not_supported_other,
+                                languageLabel(failed),
+                                languageLabel(next)
+                            )
+                        }
+                        log(applicationContext, KIND_STATUS, message)
+                        try {
+                            recognizer?.destroy()
+                        } catch (_: Exception) {
+                        }
+                        recognizer = createRecognizer()
+                        scheduleRestart(500)
+                    } else {
+                        // Whole chain tried — nothing left to fall
+                        // back to. Say so once and STOP; never loop.
+                        log(
+                            applicationContext, KIND_ERROR,
+                            getString(R.string.lang_chain_exhausted)
+                        )
+                        clearWorkingLanguage()
+                        stopListening()
+                        stopSelf()
+                    }
+                }
                 else -> {
-                    log(applicationContext, KIND_ERROR, "এরর $error")
-                    scheduleRestart(500)
+                    // v1.2: unknown errors must NOT tight-loop forever
+                    // (the old code logged "এরর $error" and restarted
+                    // every 500 ms without end). Back off, and stop
+                    // after 3 in a row.
+                    unknownErrorStreak++
+                    if (unknownErrorStreak >= MAX_UNKNOWN_ERROR_STREAK) {
+                        log(
+                            applicationContext, KIND_ERROR,
+                            getString(R.string.unknown_error_stopped)
+                        )
+                        stopListening()
+                        stopSelf()
+                    } else {
+                        log(
+                            applicationContext, KIND_ERROR,
+                            getString(R.string.unknown_error_retry, error)
+                        )
+                        scheduleRestart(1000L * unknownErrorStreak)
+                    }
                 }
             }
         }
@@ -344,6 +495,12 @@ class VoiceCommandService : Service() {
             silentStreak = 0
             networkStreak = 0
             busyRecreated = false
+            unknownErrorStreak = 0
+            startFailureStreak = 0
+            // v1.2: this language works on this phone — remember it so
+            // the next start goes straight to it, and reset the chain
+            // position to it (it already points here).
+            saveWorkingLanguage()
             val heard = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()?.trim().orEmpty()
             if (heard.isNotEmpty()) {

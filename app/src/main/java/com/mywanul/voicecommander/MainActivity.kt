@@ -363,7 +363,9 @@ class MainActivity : AppCompatActivity() {
         }
         val lines = txtLog.text.toString().split("\n").toMutableList()
         lines.add(line)
-        val kept = lines.takeLast(40)
+        // v1.2: cap the log so a future error flood can never fill
+        // the screen (or memory) — only the last 50 lines are kept.
+        val kept = lines.takeLast(50)
         txtLog.text = kept.joinToString("\n")
     }
 

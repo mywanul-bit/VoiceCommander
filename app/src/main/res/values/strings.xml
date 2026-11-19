@@ -45,4 +45,12 @@
     <string name="bubble_off">ভাসমান বাবল: চালু নেই — বোতাম চেপে অনুমতি দিন</string>
     <string name="bubble_prompt">অন্য অ্যাপের উপরে দেখানোর অনুমতি চালু করে ফিরে আসুন</string>
     <string name="bubble_started">ভাসমান বাবল চালু হলো</string>
+
+    <!-- v1.2: language fallback (SpeechRecognizer error 12/13/14) -->
+    <string name="voice_service_unavailable">ভয়েস শোনার সেবা এই ফোনে পাওয়া যাচ্ছে না</string>
+    <string name="lang_not_supported_english">বাংলা এই ফোনে সমর্থিত নয় — ইংরেজিতে চেষ্টা করছি</string>
+    <string name="lang_not_supported_other">%1$s এই ফোনে সমর্থিত নয় — %2$s চেষ্টা করছি</string>
+    <string name="lang_chain_exhausted">এই ফোনের ভয়েস সেবায় বাংলা নেই — Google অ্যাপ আপডেট করে বাংলা ভাষা যোগ করুন, অথবা ইংরেজিতে বলুন</string>
+    <string name="unknown_error_retry">অজানা সমস্যা (এরর %1$d) — আবার চেষ্টা করছি</string>
+    <string name="unknown_error_stopped">বারবার সমস্যা হচ্ছে — শোনা থামাচ্ছি, আবার চেষ্টা করুন</string>
 </resources>
