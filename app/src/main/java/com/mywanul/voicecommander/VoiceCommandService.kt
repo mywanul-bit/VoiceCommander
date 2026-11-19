@@ -135,23 +135,15 @@ class VoiceCommandService : Service() {
     @Volatile
     private var commandInFlight = false
 
-    private val rearmRunnable: Runnable = Runnable {
-        if (!wantListening || !isRunning) return@Runnable
-        if (commandInFlight || TtsHelper.isSpeaking()) {
-            // v1.3 — the assistant is still answering (or its answer
-            // is still being computed). Re-arming now would make the
-            // recognizer hear its own voice, so wait and check again
-            // shortly. No time limit: a long read-aloud must not be
-            // cut off by a forced re-arm either.
-            // NOTE: the explicit ": Runnable" type is required — without
-            // it the compiler cannot infer the type of this property
-            // because the lambda refers to the property itself
-            // (Kotlin: "Type checking has run into a recursive problem").
-            handler.postDelayed(rearmRunnable, 400)
-            return@Runnable
-        }
-        startListening()
-    }
+    // v1.3 — NOTE: this must be a lateinit var initialised in onCreate(),
+    // NOT a val with an inline initializer. The runnable refers to itself
+    // (it re-posts itself while the assistant is speaking), and a val
+    // whose initializer references itself fails to compile twice over:
+    // first "Type checking has run into a recursive problem", then with
+    // an explicit type, "Variable 'rearmRunnable' must be initialized".
+    // A lateinit var has no initializer, so the self-reference inside
+    // the lambda (which only runs after onCreate) compiles fine.
+    private lateinit var rearmRunnable: Runnable
 
     private val watchdogRunnable = Runnable {
         // A session with no terminal callback for 90 s is stuck —
@@ -176,6 +168,17 @@ class VoiceCommandService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("শুনছি…"))
         recognizer = createRecognizer()
+        // v1.3: re-arm waits while the assistant is speaking, so the
+        // recognizer never starts while its own voice is playing.
+        // No time limit: a long read-aloud must not be cut off.
+        rearmRunnable = Runnable {
+            if (!wantListening || !isRunning) return@Runnable
+            if (commandInFlight || TtsHelper.isSpeaking()) {
+                handler.postDelayed(rearmRunnable, 400)
+                return@Runnable
+            }
+            startListening()
+        }
         // v1.2: start with the language that worked last time, if any
         // was saved — otherwise bn-BD (index 0).
         languageIndex = loadSavedLanguageIndex()
